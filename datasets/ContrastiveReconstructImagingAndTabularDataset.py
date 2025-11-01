@@ -95,8 +95,13 @@ class ContrastiveReconstructImagingAndTabularDataset(Dataset):
       ])
 
     # Tabular
-    self.data_tabular = self.read_and_parse_csv(data_path_tabular)
-    self.generate_marginal_distributions()
+    # self.data_tabular = self.read_and_parse_csv(data_path_tabular)
+    # self.generate_marginal_distributions()
+    print("Loading tabular data from CSV...")
+    data_df = pd.read_csv(data_path_tabular, header=None, dtype=np.float32) 
+    self.data_tabular = data_df.values 
+    self.generate_marginal_distributions(data_df) 
+    print("Tabular data loaded.")
     self.c = corruption_rate
     self.field_lengths_tabular = torch.load(field_lengths_tabular)
     self.one_hot_tabular = one_hot_tabular
@@ -120,12 +125,13 @@ class ContrastiveReconstructImagingAndTabularDataset(Dataset):
         data.append(r2)
     return data
 
-  def generate_marginal_distributions(self) -> None:
+  def generate_marginal_distributions(self, data_df: pd.DataFrame) -> None:
     """
     Generates empirical marginal distribution by transposing data
     """
-    data = np.array(self.data_tabular)
-    self.marginal_distributions = np.transpose(data)
+    # 算法的 'corrupt' 部分需要 list, 所以这里 .tolist() 是必须的
+    self.marginal_distributions = data_df.transpose().values.tolist()
+
 
   def get_input_size(self) -> int:
     """

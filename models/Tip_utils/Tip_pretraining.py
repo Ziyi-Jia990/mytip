@@ -77,8 +77,7 @@ class Pretraining(pl.LightningModule):
     self.top5_acc_val_cat = torchmetrics.Accuracy(task='multiclass', top_k=5, num_classes=n_classes_cat)
     self.auc_train_cat = torchmetrics.AUROC(task='multiclass', num_classes=n_classes_cat)
     self.auc_val_cal = torchmetrics.AUROC(task='multiclass', num_classes=n_classes_cat)
-    self.classifier_f1_train = torchmetrics.F1Score(task=task, num_classes=self.hparams.num_classes, average='macro')
-    self.classifier_f1_val = torchmetrics.F1Score(task=task, num_classes=self.hparams.num_classes, average='macro')
+    
 
     self.acc_train_itm = torchmetrics.Accuracy(task='binary', num_classes=2)
     self.acc_val_itm = torchmetrics.Accuracy(task='binary', num_classes=2)
@@ -90,6 +89,9 @@ class Pretraining(pl.LightningModule):
 
     self.classifier_auc_train = torchmetrics.AUROC(task=task, num_classes=self.hparams.num_classes)
     self.classifier_auc_val = torchmetrics.AUROC(task=task, num_classes=self.hparams.num_classes)
+    
+    self.classifier_f1_train = torchmetrics.F1Score(task=task, num_classes=self.hparams.num_classes, average='macro')
+    self.classifier_f1_val = torchmetrics.F1Score(task=task, num_classes=self.hparams.num_classes, average='macro')
 
 
   def load_pretrained_imaging_weights(self) -> None:

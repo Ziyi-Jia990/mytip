@@ -1,0 +1,5 @@
+- exp_name=test_MMCL
+- pretrain=False
+- evaluate=False
+- test=True
+- checkpoint=/home/debian/TIP/results/runs/eval/finetune_dvm_1031_0658/checkpoint_best_acc.ckpt
