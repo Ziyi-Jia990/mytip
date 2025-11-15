@@ -243,29 +243,8 @@ class TabularTransformerEncoder(nn.Module):
 
     def embedding(self, x, mask_special=None):
         # categorical embedding
-        
-        # 1. 获取原始的分类特征索引
-        raw_indices = x[:, :self.num_cat].long()
-        
-        # 2. 【【【 在这里修复 】】】
-        # 将所有负数（例如-1, -2, -4）都重置为 0。
-        # 这是一个“虚拟索引”，用于防止 embedding 查找崩溃。
-        # 这个索引 0 对应的值稍后会被 mask_special_token 替换。
-        clamped_indices = raw_indices.clamp(min=0) 
+        cat_x = self.cat_embedding(x[:, :self.num_cat].long() + self.cat_offsets)
 
-        # 3. 添加偏移量
-        indices_to_embed = clamped_indices + self.cat_offsets
-
-        # 4. (可选) 检查一下偏移量相加后是否越界
-        vocab_size = self.cat_embedding.num_embeddings
-        if torch.any(indices_to_embed >= vocab_size):
-             # 如果你在这里触发了错误，说明你的 cat_lengths_tabular 或 cat_offsets 计算有误
-             print(f"!!! 警告: 索引越界 (>= {vocab_size}) !!!")
-             # 仍然使用 clamp 修复它，防止崩溃
-             indices_to_embed = indices_to_embed.clamp(max=vocab_size - 1)
-
-        # 5. 使用修复后的、保证全为正数的索引来调用 embedding
-        cat_x = self.cat_embedding(indices_to_embed) 
         
         # continuous embedding
         con_x = self.con_proj(x[:, self.num_cat:].unsqueeze(-1))

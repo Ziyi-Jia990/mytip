@@ -114,11 +114,11 @@ class ImagingAndTabularDataset(Dataset):
               ToTensorV2()
           ])
       elif self.dataset_name == 'skin_cancer': 
-          print(f'Using Skin Cancer transform (Resize + 0-1 Norm)')
-          self.default_transform = A.Compose([
-              A.Resize(height=img_size, width=img_size),
-              ToTensorV2()
-          ])
+        self.default_transform = A.Compose([
+            A.Resize(height=img_size, width=img_size),
+            ToTensorV2()
+        ])
+
       else:
           # 修正一下这里的报错方式
           raise ValueError(f'Unsupported dataset: {self.dataset_name}.')  
@@ -131,7 +131,7 @@ class ImagingAndTabularDataset(Dataset):
     # Tabular
     self.data_tabular = np.array(self.read_and_parse_csv(data_path_tabular))
     self.generate_marginal_distributions()
-    self.field_lengths_tabular = np.array(torch.load(field_lengths_tabular))
+    self.field_lengths_tabular = np.array(torch.load(field_lengths_tabular))  # 原始顺序
     self.eval_one_hot = eval_one_hot
     self.c = corruption_rate if corruption_rate else None
 
@@ -144,12 +144,25 @@ class ImagingAndTabularDataset(Dataset):
       self.missing_mask_data = np.load(missing_mask_path)
       print(f'Load missing mask from {missing_mask_path}')
       assert len(self.data_imaging) == self.missing_mask_data.shape[0]
+
       if self.eval_one_hot and missing_strategy in set(['feature', 'MI', 'LI']):
+        # 先在 field_lengths_tabular 上做“按列剔除”
         self.field_lengths_tabular = self.field_lengths_tabular[~self.missing_mask_data[0]]
         print('Onehot input tabular feature size: ', len(self.field_lengths_tabular), int(np.sum(self.field_lengths_tabular)))
       else:
         print('Transformer input tabular feature size: ', len(self.field_lengths_tabular), len(self.field_lengths_tabular))
 
+    # === 新增：根据（可能已经被 mask 过的）field_lengths_tabular 计算 cat/con 索引，并构造重排顺序 ===
+    self.cat_indices = [i for i, fl in enumerate(self.field_lengths_tabular) if fl > 1]
+    self.con_indices = [i for i, fl in enumerate(self.field_lengths_tabular) if fl == 1]
+    self.reorder_indices = np.array(self.cat_indices + self.con_indices, dtype=np.int64)
+
+    # 对应的重排后的 field_lengths，用于 one-hot（非 missing_tabular 情况）
+    self.field_lengths_reordered = self.field_lengths_tabular[self.reorder_indices]
+
+    print(f"[ImagingAndTabularDataset] num_cat (from lengths>1): {len(self.cat_indices)}")
+    print(f"[ImagingAndTabularDataset] num_con (from lengths==1): {len(self.con_indices)}")
+    
     # Classifier
     self.labels = torch.load(labels_path)
 
@@ -205,19 +218,53 @@ class ImagingAndTabularDataset(Dataset):
 
   def one_hot_encode(self, subject: torch.Tensor) -> torch.Tensor:
     """
-    One-hot encodes a subject's features
+    One-hot encodes a subject's features.
+
+    - 如果 missing_tabular=False：
+        subject 已经在 __getitem__ 里重排为 [cat, ..., con]，
+        对应的 field_lengths 使用 self.field_lengths_reordered。
+    - 如果 missing_tabular=True 且 strategy in ['feature','MI','LI'] 且 eval_one_hot:
+        subject 会先按 missing_mask 删掉整列，
+        field_lengths_tabular 在 __init__ 时已经做了同样的列过滤，此时两者顺序一致。
     """
+
+    # 1) 根据是否使用 “feature-level missing” 决定 field_lengths 使用哪个版本
     if self.missing_tabular and self.missing_strategy in set(['feature', 'MI', 'LI']) and self.eval_one_hot:
-      subject = subject[~self.missing_mask_data[0]]
+      # 这里 subject 还是“原始顺序”的子集（按 missing_mask 删列后）
+      mask_row = torch.from_numpy(self.missing_mask_data[0]).to(subject.device)  # shape: [num_features]
+      subject = subject[~mask_row]  # 删掉整列 missing 的特征
+      field_lengths = self.field_lengths_tabular  # 已在 __init__ 里做过相同的过滤
+    else:
+      # 没有 feature-level missing，subject 已在 __getitem__ 里重排为 cat-first
+      field_lengths = self.field_lengths_reordered if hasattr(self, 'field_lengths_reordered') else self.field_lengths_tabular
+
+    # 2) 逐列做 one-hot / 保留数值
     out = []
+    assert len(subject) == len(field_lengths), \
+        f"subject length {len(subject)} != field_lengths length {len(field_lengths)}"
+
     for i in range(len(subject)):
-      if self.field_lengths_tabular[i] == 1:
+      field_len = int(field_lengths[i])
+      if field_len == 1:
+        # 连续特征，直接保留数值
         out.append(subject[i].unsqueeze(0))
       else:
-        out.append(torch.nn.functional.one_hot(torch.clamp(subject[i],min=0,max=self.field_lengths_tabular[i]-1).long(), num_classes=int(self.field_lengths_tabular[i])))
-    return torch.cat(out)
+        # 类别特征：做 one-hot，先 clamp 防止极端越界
+        idx = subject[i].long()
+        idx = torch.clamp(idx, min=0, max=field_len - 1)
+        out.append(torch.nn.functional.one_hot(idx, num_classes=field_len).to(subject.dtype))
 
-  def __getitem__(self, index: int) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor, torch.Tensor]:
+    return torch.cat(out)
+  
+  def _reorder_subject_np(self, subject_np: np.ndarray) -> np.ndarray:
+    """
+    将原始顺序的 1D numpy 向量 subject_np
+    重排为 [所有类别特征 | 所有连续特征] 的顺序。
+    """
+    return subject_np[self.reorder_indices]
+
+
+  def __getitem__(self, index: int):
     im = self.data_imaging[index]
     path = im
     if self.live_loading:
@@ -227,15 +274,38 @@ class ImagingAndTabularDataset(Dataset):
         im = read_image(im)
         im = im / 255
 
+    # ---- 先拿到原始 tabular numpy 向量 ----
+    subj_np = self.data_tabular[index]  # shape: [num_features]
+
+    # ---- 根据 train/eval & corruption，得到当前要用的 tabular numpy 向量 ----
     if self.train and (random.random() <= self.eval_train_augment_rate):
       im = self.transform_train(image=im)['image'] if self.augmentation_speedup else self.transform_train(im)
-      if self.c > 0:
-        tab = torch.tensor(self.corrupt(self.data_tabular[index]), dtype=torch.float)
+      if self.c and self.c > 0:
+        tab_np = self.corrupt(subj_np)   # 注意 corrupt 用的是原始顺序
       else:
-        tab = torch.tensor(self.data_tabular[index], dtype=torch.float)
+        tab_np = subj_np.copy()
     else:
       im = self.default_transform(image=im)['image'] if self.augmentation_speedup else self.default_transform(im)
-      tab = torch.tensor(self.data_tabular[index], dtype=torch.float)
+      tab_np = subj_np.copy()
+
+    # ---- 若没有 missing_tabular，就统一重排为 [cat, ..., con] ----
+    if not self.missing_tabular:
+      tab_np = self._reorder_subject_np(tab_np)
+
+    # ---- 转成 tensor ----
+    tab = torch.tensor(tab_np, dtype=torch.float)
+
+    # ==== 之前加的兜底，把 im 转成 float32 ====
+    if isinstance(im, torch.Tensor):
+        if im.dtype == torch.uint8:
+            im = im.float() / 255.0
+    else:
+        im = torch.from_numpy(im)
+        if im.dtype == torch.uint8:
+            im = im.float() / 255.0
+        else:
+            im = im.float()
+    # ========================================
 
     if self.eval_one_hot:
       tab = self.one_hot_encode(tab).to(torch.float)
@@ -247,6 +317,7 @@ class ImagingAndTabularDataset(Dataset):
       return (im, tab, missing_mask, path), label
     else:
       return (im, tab, path), label
+
 
   def __len__(self) -> int:
     return len(self.data_tabular)

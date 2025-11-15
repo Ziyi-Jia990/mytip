@@ -10,6 +10,7 @@ import pandas as pd
 from torchvision.transforms import transforms
 from torchvision.io import read_image
 import albumentations as A
+from albumentations import Normalize
 from albumentations.pytorch import ToTensorV2
 
 def convert_to_float(x):
@@ -88,14 +89,15 @@ class ContrastiveImagingAndTabularDataset(Dataset):
           self.default_transform = A.Compose([
               A.Resize(height=img_size, width=img_size),
               A.ToRGB(p=1.0),
+              A.Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0], max_pixel_value=255.0),
               ToTensorV2()
           ])   
-      elif self.dataset_name == 'skin_cancer': 
-          print(f'Using Skin Cancer transform (Resize + 0-1 Norm)')
-          self.default_transform = A.Compose([
-              A.Resize(height=img_size, width=img_size),
-              ToTensorV2()
-          ])
+      elif self.dataset_name == 'skin_cancer':
+        print(f'Using Skin Cancer transform (Resize + 0-1 Norm)')
+        self.default_transform = A.Compose([
+            A.Resize(height=img_size, width=img_size),
+            ToTensorV2()   # 就够了，默认会把 uint8 → float32 /255
+        ])
       else:
           # 修正一下这里的报错方式
           raise ValueError(f'Unsupported dataset: {self.dataset_name}.')  
@@ -200,6 +202,12 @@ class ContrastiveImagingAndTabularDataset(Dataset):
 
     orig_im = self.default_transform(image=im)['image'] if self.augmentation_speedup else self.default_transform(im)
     
+    if isinstance(orig_im, torch.Tensor) and orig_im.dtype == torch.uint8:
+        orig_im = orig_im.float() / 255.0
+    for k in range(len(ims)):
+        if isinstance(ims[k], torch.Tensor) and ims[k].dtype == torch.uint8:
+            ims[k] = ims[k].float() / 255.0
+
     return ims, orig_im
 
   def __getitem__(self, index: int) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor, torch.Tensor]:
@@ -213,7 +221,8 @@ class ContrastiveImagingAndTabularDataset(Dataset):
     ]
     if self.one_hot_tabular:
       tabular_views = [self.one_hot_encode(tv) for tv in tabular_views]
-    label = torch.tensor(self.labels[index], dtype=torch.long)
+    # label = torch.tensor(self.labels[index], dtype=torch.long)
+    label = self.labels[index].clone().detach().to(torch.long)
     return imaging_views, tabular_views, label, unaugmented_image
 
   def __len__(self) -> int:

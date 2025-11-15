@@ -30,7 +30,7 @@ num_workers: 3
 
 algorithm_name: TIP
 strategy: tip
-dataset_name: dvm
+dataset_name: breast_cancer
 exp_name: NA
 
 

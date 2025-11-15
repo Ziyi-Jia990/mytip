@@ -10,6 +10,8 @@ from utils.utils import grab_hard_eval_image_augmentations, grab_soft_eval_image
 
 import numpy as np
 import albumentations as A
+from albumentations.pytorch import ToTensorV2
+from albumentations import Normalize # <--- 确保有这一行
 
 def convert_to_float(x):
   return x.float()
@@ -51,20 +53,57 @@ class ImageDataset(Dataset):
     self.transform_train = grab_hard_eval_image_augmentations(img_size, target, augmentation_speedup=self.augmentation_speedup)
 
     if self.augmentation_speedup:
-      if self.dataset_name == 'dvm':
-        self.transform_val = A.Compose([
-          A.Resize(height=img_size, width=img_size),
-          A.Lambda(name='convert2tensor', image=convert_to_ts)
-        ])
-        print('Using dvm transform for val transform in ImageDataset')
-      elif self.dataset_name == 'cardiac':
-        self.transform_val = A.Compose([
-          A.Resize(height=img_size, width=img_size),
-          A.Lambda(name='convert2tensor', image=convert_to_ts_01)
-        ])
-        print('Using cardiac transform for val transform in ImageDataset')
-      else:
-        raise print('Only support dvm and cardiac datasets')
+        if self.dataset_name == 'dvm':
+            self.transform_val = A.Compose([
+                A.Resize(height=img_size, width=img_size),
+                A.Lambda(name='convert2tensor', image=convert_to_ts)
+            ])
+            print('Using dvm transform for val transform in ImageDataset')
+        elif self.dataset_name == 'cardiac':
+            self.transform_val = A.Compose([
+                A.Resize(height=img_size, width=img_size),
+                A.Lambda(name='convert2tensor', image=convert_to_ts_01)
+            ])
+            print('Using cardiac transform for val transform in ImageDataset')
+            
+        # --- 【修复开始】---
+        
+        elif self.dataset_name == 'adoption': 
+            print(f'Using adoption transform for default transform (Albumentations)')
+            # 修正：self.default_transform -> self.transform_val
+            self.transform_val = A.Compose([
+                A.Resize(height=img_size, width=img_size),
+                ToTensorV2() 
+            ])
+        elif self.dataset_name == 'celeba':
+            print(f'Using standard (0-255 -> 0-1) transform for CelebA (Albumentations)')
+            # 修正：self.default_transform -> self.transform_val
+            self.transform_val = A.Compose([
+                A.Resize(height=img_size, width=img_size),
+                ToTensorV2() 
+            ])
+        elif self.dataset_name == 'breast_cancer': 
+            print(f'Using Breast Cancer transform (Resize + L-to-RGB + NORMALIZE + ToTensor)')
+            # 修正：self.default_transform -> self.transform_val
+            self.transform_val = A.Compose([
+                A.Resize(height=img_size, width=img_size),
+                A.ToRGB(p=1.0),
+                A.Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0], max_pixel_value=255.0),
+                ToTensorV2()
+            ])
+        elif self.dataset_name == 'skin_cancer': 
+            print(f'Using Skin Cancer transform (Resize + 0-1 Norm)')
+            # 修正：self.default_transform -> self.transform_val
+            self.transform_val = A.Compose([
+              A.Resize(height=img_size, width=img_size),
+              A.Normalize(mean=(0.0, 0.0, 0.0),
+                          std=(255.0, 255.0, 255.0),  # 这里的 std=255 刚好等价于除以 255
+                          max_pixel_value=255.0),
+              ToTensorV2()
+          ])
+            
+        else:
+            raise print('Only support dvm and cardiac datasets')
     else:
       self.transform_val = transforms.Compose([
         transforms.Resize(size=(img_size,img_size)),

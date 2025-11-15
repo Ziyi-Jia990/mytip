@@ -1,0 +1,5 @@
+- exp_name=skin_cancer_MMCL
+- pretrain=False
+- evaluate=True
+- checkpoint=/home/debian/TIP/results/runs/multimodal/skin_cancer_skin_cancer_1114_1320/checkpoint_last_epoch_16.ckpt
+- use_wandb=False

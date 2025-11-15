@@ -114,6 +114,8 @@ class TIPBackbone(nn.Module):
 
   def forward(self, x: torch.Tensor, visualize=False) -> torch.Tensor:
     x_i, x_t = x[0], x[1]
+    if isinstance(x_i, torch.Tensor) and x_i.dtype == torch.uint8:
+        x_i = x_i.float() / 255.0
     x_i = self.encoder_imaging(x_i)[-1]   # (B,C,H,W)
     # missing mask
     if self.missing_tabular:

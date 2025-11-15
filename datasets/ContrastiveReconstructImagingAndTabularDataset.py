@@ -97,12 +97,15 @@ class ContrastiveReconstructImagingAndTabularDataset(Dataset):
               A.ToRGB(p=1.0),
               ToTensorV2()
           ])   
-      elif self.dataset_name == 'skin_cancer': 
-          print(f'Using Skin Cancer transform (Resize + 0-1 Norm)')
-          self.default_transform = A.Compose([
-              A.Resize(height=img_size, width=img_size),
-              ToTensorV2()
-          ])
+      elif self.dataset_name == 'skin_cancer':
+        print(f'Using Skin Cancer transform (Resize + 0-1 Norm)')
+        self.default_transform = A.Compose([
+            A.Resize(height=img_size, width=img_size),
+            A.Normalize(mean=(0.0, 0.0, 0.0),
+                        std=(255.0, 255.0, 255.0),  # 这里的 std=255 刚好等价于除以 255
+                        max_pixel_value=255.0),
+            ToTensorV2()
+        ])
       else:
           # 修正一下这里的报错方式
           raise ValueError(f'Unsupported dataset: {self.dataset_name}.')  
@@ -116,12 +119,24 @@ class ContrastiveReconstructImagingAndTabularDataset(Dataset):
     # self.data_tabular = self.read_and_parse_csv(data_path_tabular)
     # self.generate_marginal_distributions()
     print("Loading tabular data from CSV...")
+    print(f"--- [DEBUG] Loading tabular file: {data_path_tabular} ---") # <--- 添加这一行
     data_df = pd.read_csv(data_path_tabular, header=None, dtype=np.float32) 
     self.data_tabular = data_df.values 
     self.generate_marginal_distributions(data_df) 
     print("Tabular data loaded.")
     self.c = corruption_rate
     self.field_lengths_tabular = torch.load(field_lengths_tabular)
+    # === 新增：根据 field_lengths_tabular 计算类别/连续列的索引 ===
+    #  TIP 的假设：field_len == 1 -> 连续特征； >1 -> 类别特征
+    self.cat_indices = [i for i, fl in enumerate(self.field_lengths_tabular) if fl > 1]
+    self.con_indices = [i for i, fl in enumerate(self.field_lengths_tabular) if fl == 1]
+    
+    # === 新增：按照 cat-first 的顺序重排 field_lengths，用于 one_hot ===
+    reordered_indices = self.cat_indices + self.con_indices
+    self.field_lengths_reordered = torch.tensor(
+        [int(self.field_lengths_tabular[i]) for i in reordered_indices],
+        dtype=torch.long
+    )
     self.one_hot_tabular = one_hot_tabular
     self.replace_random_rate = replace_random_rate
     self.replace_special_rate = replace_special_rate
@@ -196,13 +211,15 @@ class ContrastiveReconstructImagingAndTabularDataset(Dataset):
     # 2. 计算要 mask 的总数
     total_rate = self.replace_random_rate + self.replace_special_rate
     if total_rate == 0 or len(possible_indices) == 0:
-      indices = []
-      num_random = 0
+        indices = []
+        num_random = 0
     else:
-      num_to_mask = round(len(subject) * total_rate)
-      num_to_mask = min(num_to_mask, len(possible_indices))
-      indices = random.sample(possible_indices, num_to_mask)
-      num_random = int(len(indices) * self.replace_random_rate / total_rate) if total_rate > 0 else 0
+        # ✅ 更合理：基于 “可被 mask 的字段数” 计算数量
+        num_to_mask = round(len(possible_indices) * total_rate)
+        num_to_mask = min(num_to_mask, len(possible_indices))
+        indices = random.sample(possible_indices, num_to_mask)
+        num_random = int(len(indices) * self.replace_random_rate / total_rate) if total_rate > 0 else 0
+
 
     num_special = len(indices) - num_random
     
@@ -228,10 +245,15 @@ class ContrastiveReconstructImagingAndTabularDataset(Dataset):
     """
     out = []
     for i in range(len(subject)):
-      if self.field_lengths_tabular[i] == 1:
-        out.append(subject[i].unsqueeze(0))
-      else:
-        out.append(torch.nn.functional.one_hot(subject[i].long(), num_classes=int(self.field_lengths_tabular[i])))
+        field_len = int(self.field_lengths_reordered[i])
+        if field_len == 1:
+            out.append(subject[i].unsqueeze(0))
+        else:
+            out.append(
+                torch.nn.functional.one_hot(
+                    subject[i].long(), num_classes=field_len
+                ).float()  # 转成 float，方便后面拼别的特征
+            )
     return torch.cat(out)
 
   def generate_imaging_views(self, index: int) -> List[torch.Tensor]:
@@ -242,7 +264,8 @@ class ContrastiveReconstructImagingAndTabularDataset(Dataset):
     im = self.data_imaging[index]
     if self.live_loading:
       if self.augmentation_speedup:
-        im = np.load(im[:-4]+'.npy', allow_pickle=True)
+        # im = np.load(im[:-4]+'.npy', allow_pickle=True)
+        im = np.load(im, allow_pickle=True)
       else:
         im = read_image(im)
         im = im / 255 if self.dataset_name == 'dvm' else im
@@ -267,23 +290,68 @@ class ContrastiveReconstructImagingAndTabularDataset(Dataset):
         ims[1] = ims[1].float() / 255.0
 
     return ims, orig_im
+  
 
-  def __getitem__(self, index: int) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor, torch.Tensor]:
-    imaging_views, unaugmented_image = self.generate_imaging_views(index)
-    # origin   augmented
-    if self.c > 0:
-      tabular_views = [torch.tensor(self.corrupt(self.data_tabular[index]), dtype=torch.float)]
-    else:
-      tabular_views = [torch.tensor(self.data_tabular[index], dtype=torch.float)] 
-    masked_view, mask, mask_special, mask_random =  self.mask(self.data_tabular[index])
-    tabular_views.append(torch.from_numpy(masked_view).float())
-    tabular_views = tabular_views + [torch.from_numpy(mask), torch.from_numpy(mask_special)]
-    if self.one_hot_tabular:
-      tabular_views = [self.one_hot_encode(tv) for tv in tabular_views]
-    # label = torch.tensor(self.labels[index], dtype=torch.long)
-    label = self.labels[index].clone().detach().to(torch.long)
-    unaugmented_tabular = torch.tensor(self.data_tabular[index], dtype=torch.float)
-    return imaging_views, tabular_views, label, unaugmented_image, unaugmented_tabular 
+  def _reorder_subject(self, subject: torch.Tensor) -> torch.Tensor:
+      """
+      将长度为 num_features 的 1D 向量 subject
+      从 [原始列顺序] 重排为 [所有类别列 | 所有连续列]
+      """
+      # subject: 1D tensor, shape [num_features]
+      cat_part = subject[self.cat_indices]
+      con_part = subject[self.con_indices]
+      return torch.cat([cat_part, con_part], dim=0)
+
+  def _reorder_mask(self, mask: torch.Tensor) -> torch.Tensor:
+      """
+      同样方式重排 mask / mask_special（1D bool tensor）
+      """
+      cat_part = mask[self.cat_indices]
+      con_part = mask[self.con_indices]
+      return torch.cat([cat_part, con_part], dim=0)
+
+
+  def __getitem__(self, index: int) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor]:
+      imaging_views, unaugmented_image = self.generate_imaging_views(index)
+
+      # ---- 先拿到原始 numpy 向量 ----
+      subj_np = self.data_tabular[index]  # shape: [num_features]
+      
+      # ---- 1) origin / corrupted view ----
+      if self.c > 0:
+        corrupted_np = self.corrupt(subj_np)  # 仍按原顺序做 corruption
+        corrupted = torch.tensor(corrupted_np, dtype=torch.float)
+      else:
+        corrupted = torch.tensor(subj_np, dtype=torch.float)
+      
+      # ---- 2) masked view + masks ----
+      masked_view_np, mask_np, mask_special_np, mask_random_np = self.mask(subj_np)
+      masked_view = torch.from_numpy(masked_view_np).float()
+      mask = torch.from_numpy(mask_np.astype(bool))
+      mask_special = torch.from_numpy(mask_special_np.astype(bool))
+      # mask_random 目前 Trainer 不直接用，但你如果后续要用也可以类似处理
+      # mask_random = torch.from_numpy(mask_random_np.astype(bool))
+
+      # ---- 3) 统一重排顺序：cat-first, con-last ----
+      corrupted = self._reorder_subject(corrupted)
+      masked_view = self._reorder_subject(masked_view)
+      mask = self._reorder_mask(mask)
+      mask_special = self._reorder_mask(mask_special)
+
+      tabular_views = [corrupted, masked_view, mask, mask_special]
+
+      if self.one_hot_tabular:
+        tabular_views = [self.one_hot_encode(tv) for tv in tabular_views]
+
+      # ---- 4) label ----
+      label = self.labels[index].clone().detach().to(torch.long)
+
+      # ---- 5) unaugmented_tabular 给在线评估用，同样要重排 ----
+      unaugmented_tabular = torch.tensor(subj_np, dtype=torch.float)
+      unaugmented_tabular = self._reorder_subject(unaugmented_tabular)
+
+      return imaging_views, tabular_views, label, unaugmented_image, unaugmented_tabular
+
 
   def __len__(self) -> int:
     return len(self.data_tabular)

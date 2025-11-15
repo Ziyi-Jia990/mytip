@@ -1,7 +1,0 @@
-- pretrain=False
-- evaluate=True
-- checkpoint=/home/debian/TIP/results/runs/multimodal/pretrain_2023_breast_cancer_1107_1052/checkpoint_last_epoch_499.ckpt
-- exp_name=finetune_2023_tip
-- max_epochs=200
-- lr_eval=1e-5
-- seed=2023

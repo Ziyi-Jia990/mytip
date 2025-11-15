@@ -108,7 +108,7 @@ def grab_image_augmentations(img_size: int, target: str, augmentation_speedup: b
             ])
         print('Using cardiac transform for train augmentation')
 
-    elif target in ['celeba', 'skin_cancer', 'adoption']:
+    elif target in ['celeba', 'adoption']:
         # [新增分支] 适用于 [0, 255] 范围的标准 RGB 图像
         print(f'Using {target} transform (RGB + 0-1 Norm) for train augmentation')
         if augmentation_speedup:
@@ -131,35 +131,47 @@ def grab_image_augmentations(img_size: int, target: str, augmentation_speedup: b
                 transforms.Lambda(convert_to_float) # 假设 non-speedup 路径加载的已是 [0, 1]
             ])
 
-    elif target == 'breast_cancer':
-        # [新增分支] 针对 breast_cancer (灰度图) 的特定修复
-        print('Using breast_cancer transform (L -> RGB + 0-1 Norm) for train augmentation')
-        if augmentation_speedup:
-            transform = A.Compose([
-                # 空间增强 (可以安全地在 1 通道上运行)
-                A.HorizontalFlip(p=0.5),
-                A.Rotate(limit=45),
-                A.RandomResizedCrop(height=img_size, width=img_size, scale=(0.2, 1.0)),
-                
-                # [修复] 移除 ColorJitter
-                
-                # [修复] 在最后进行转换
-                A.ToRGB(p=1.0), # 1. 转换为 3 通道
-                ToTensorV2()   # 2. 归一化 [0, 255] -> [0, 1] 并 permute
-            ])
-        else:
-             # (假设 non-speedup 路径也使用 'cardiac' 的 torchvision 增强)
-            transform = transforms.Compose([
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomRotation(45),
-                # 移除 ColorJitter
-                transforms.RandomResizedCrop(size=img_size, scale=(0.2,1)),
-                
-                # [修复] 添加 Grayscale-to-RGB
-                transforms.Grayscale(num_output_channels=3), 
-                transforms.Lambda(convert_to_float)
-            ])
-            
+    elif target.lower() == 'breast_cancer':
+      print('Using breast_cancer transform for pretrain augmentation')
+      if augmentation_speedup:
+          transform = A.Compose([
+                  A.HorizontalFlip(p=0.5),
+                  A.Rotate(limit=45),
+                  A.ToRGB(p=1.0), # 修复 permute 错误
+                  A.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5),
+                  A.RandomResizedCrop(height=img_size, width=img_size, scale=(0.6, 1.0)),
+                  A.Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0], max_pixel_value=255.0), # 修复 ByteTensor
+                  ToTensorV2() # 修复 ByteTensor
+              ])
+      else:
+          # 同样修复非 speedup 的 torchvision 分支
+          transform = transforms.Compose([
+              transforms.RandomHorizontalFlip(),
+              transforms.RandomRotation(45),
+              transforms.Grayscale(num_output_channels=3), # torchvision 版的 ToRGB
+              transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5),
+              transforms.RandomResizedCrop(size=img_size, scale=(0.6,1)),
+              transforms.ToTensor() # 自动处理 [0, 255] -> [0.0, 1.0]
+          ])
+    
+    elif target.lower() == 'skin_cancer':
+      print(f'Using skin_cancer transform (RGB + 0-1 Norm) for train augmentation')
+      if augmentation_speedup:
+          transform = A.Compose([
+              A.HorizontalFlip(p=0.5),
+              A.Rotate(limit=45),
+              A.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5),
+              A.RandomResizedCrop(height=img_size, width=img_size, scale=(0.2, 1.0)),
+              ToTensorV2()
+          ])
+      else:
+          transform = transforms.Compose([
+              transforms.RandomHorizontalFlip(),
+              transforms.RandomRotation(45),
+              transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5),
+              transforms.RandomResizedCrop(size=img_size, scale=(0.2,1)),
+              transforms.Lambda(convert_to_float)   # 不会崩，只是 0-255 float
+          ])
     else:
         # [新增] 捕获未定义的
         raise ValueError(f"No augmentations defined in grab_image_augmentations for target: {target}")
