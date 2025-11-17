@@ -33,6 +33,7 @@ do
         exp_name=$RUN_NAME \
         max_epochs=$MAX_EPOCHS_FINETUNE \
         lr_eval=$LR \
+        lr=$LR \
         use_wandb=False
         
     echo "完成运行: LR = $LR"

@@ -14,6 +14,8 @@ from models.MultimodalModelMUL import MultimodalModelMUL
 from models.MultimodalModelTransformer import MultimodalModelTransformer
 
 
+
+
 class Evaluator(pl.LightningModule):
   def __init__(self, hparams):
     super().__init__()

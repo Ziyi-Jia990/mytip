@@ -32,6 +32,7 @@ algorithm_name: TIP
 strategy: tip
 dataset_name: dvm
 exp_name: NA
+share_weights: False
 
 
 wandb_project: LaaF

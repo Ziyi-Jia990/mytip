@@ -1,0 +1,7 @@
+- exp_name=finetune
+- pretrain=False
+- evaluate=False
+- test=true
+- checkpoint=/mnt/hdd/jiazy/checkpoints/dvm/TIP/checkpoint_best_acc.ckpt
+- use_wandb=False
+- share_weights=False
