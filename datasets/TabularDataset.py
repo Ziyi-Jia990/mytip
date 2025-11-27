@@ -14,9 +14,11 @@ class TabularDataset(Dataset):
   """
   def __init__(self, data_path: str, labels_path: str, eval_train_augment_rate: float, corruption_rate:float, train: bool, eval_one_hot: bool, field_lengths_tabular: str,
                data_base: str, strategy:str='tip', missing_tabular:str=False, missing_strategy: str='value', missing_rate: float=0.0, augmentation_speedup: bool=False,
-               target: str=None
+               target: str=None,
+               task: str='classification'
                ):
     super(TabularDataset, self).__init__()
+    self.task = task
     self.missing_tabular = missing_tabular
     self.data = self.read_and_parse_csv(data_path)
     self.raw_data = np.array(self.data)
@@ -137,7 +139,13 @@ class TabularDataset(Dataset):
     if self.eval_one_hot:
       tab = self.one_hot_encode(tab)
       
-    label = torch.tensor(self.labels[index], dtype=torch.long)
+    # label = torch.tensor(self.labels[index], dtype=torch.long)
+
+    if self.task == 'regression':
+        label = torch.tensor(self.labels[index], dtype=torch.float) # 回归用 float
+    else:
+        label = torch.tensor(self.labels[index], dtype=torch.long)  # 分类用 long
+
     if self.missing_tabular:
       missing_mask = torch.from_numpy(self.missing_mask_data[index])
     else:

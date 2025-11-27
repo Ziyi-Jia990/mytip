@@ -12,136 +12,89 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 def load_and_preprocess_data(cfg: DictConfig):
-    """
-    (重构版) 
-    根据 config 对象加载和预处理数据。
-    此函数假设所有数据集都已通过标准预处理脚本处理。
-    它将加载已处理的 .csv (特征) 和 .pt (标签) 文件。
-    """
     task = cfg.get('task', 'classification')
     print(f"--- 1. 正在为 Target: '{cfg.target}' (任务: {task}) (通用LGBM加载器) 加载数据 ---")
 
     try:
         # --- 1. 加载数据 ---
-        # 目标：
-        # X_train, y_train = 训练集 (用于 GridSearchCV)
-        # X_test, y_test   = 验证集 (用于最终评估)
-        # 我们使用与 PyTorch 脚本相同的 config 键来实现这一点。
-
-        print("    正在加载训练集 (X_train, y_train)...")
-        # [!] 使用 PyTorch 脚本的 config 键
         X_train = pd.read_csv(cfg.data_train_eval_tabular, header=None)
-        # [!] 移除 'weights_only' 以兼容旧版 PyTorch (如果需要)
-        y_train_tensor = torch.load(cfg.labels_train_eval_tabular) 
-        y_train = y_train_tensor.numpy()
-
-        print("    正在加载验证集 (X_test, y_test)...")
-        # [!] 我们使用 'val' 数据集作为 LGBM 的 'test' 集，以保持与 PyTorch 实验的评估一致
         X_test = pd.read_csv(cfg.data_val_eval_tabular, header=None)
-        y_test_tensor = torch.load(cfg.labels_val_eval_tabular)
-        y_test = y_test_tensor.numpy()
         
+        # 加载标签
+        y_train = torch.load(cfg.labels_train_eval_tabular).numpy()
+        y_test = torch.load(cfg.labels_val_eval_tabular).numpy()
+
         print("    数据加载成功。")
-        
-        # --- 2. 检查并修复 1-indexed 标签 ---
+
+        # --- 2. 加载字段长度 (用于自动识别类别特征) ---
+        # [!] 关键修改：读取 field_lengths
+        all_field_lengths = torch.load(cfg.field_lengths_tabular)
+        if isinstance(all_field_lengths, torch.Tensor):
+            all_field_lengths = all_field_lengths.tolist()
+
+        # 简单的校验
+        if X_train.shape[1] != len(all_field_lengths):
+            print(f"🔴 错误：CSV 列数 ({X_train.shape[1]}) 与 field_lengths 长度 ({len(all_field_lengths)}) 不一致！")
+            sys.exit(1)
+
+        # --- 3. 标签处理 (1-indexed -> 0-indexed) ---
         if task == 'classification':
             label_min = np.min(y_train)
             label_max = np.max(y_train)
-            
-            # 检查是否为 1-indexed (例如 1, 2, 3, 4)
             if label_min == 1 and label_max == cfg.num_classes:
-                print(f"    [!] 警告：检测到 1-indexed 标签 (min={label_min}, max={label_max})。")
-                print("        正在减去 1 使其变为 0-indexed。")
-                y_train = y_train - 1 # 转换为 0-indexed (0, 1, 2, 3)
+                print(f"    [!] 警告：检测到 1-indexed 标签，正在修正...")
+                y_train = y_train - 1
                 y_test = y_test - 1
-            # 检查是否仍然越界
-            elif label_min < 0 or label_max >= cfg.num_classes:
-                print(f"🔴 错误：标签越界！")
-                print(f"       模型有 {cfg.num_classes} 个类别 (预期 0 到 {cfg.num_classes - 1})")
-                print(f"       但标签中发现 最小值={label_min}, 最大值={label_max}")
-                sys.exit(1)
-        
-        # --- 3. 转换分类特征 ---
-        # (移除原始的 'drop_cols' 和 'align_cols'，因为预处理已完成)
-        
-        num_con = cfg.num_con
-        num_cat = cfg.num_cat
-        total_features = num_con + num_cat
-        
-        if X_train.shape[1] != total_features:
-            print(f"🔴 错误：加载的 X_train 有 {X_train.shape[1]} 列, 但 config 预期 {total_features} (num_con+num_cat) 列。")
-            sys.exit(1)
-        
-        # 获取分类列的 *索引* (例如 [1, 2, 3, 4, 5])
-        categorical_indices = list(range(num_con, total_features))
-        
-        if categorical_indices:
-            print(f"    正在将 {len(categorical_indices)} 个特征转换为 'category' Dtype...")
-            
-            # 我们必须重命名列，因为原始脚本的 `pd.Categorical` 依赖于列名
-            col_names = [str(i) for i in range(total_features)]
-            X_train.columns = col_names
-            X_test.columns = col_names
-            
-            # 获取分类列的 *名称* (例如 ['1', '2', '3', '4', '5'])
-            categorical_cols = [str(i) for i in categorical_indices]
 
-            for col in categorical_cols:
-                X_train[col] = X_train[col].astype('category')
-                # 使用原始脚本中健壮的方法来对齐测试集
-                X_test[col] = pd.Categorical(X_test[col], categories=X_train[col].cat.categories, ordered=False)
+        # --- 4. 转换分类特征 (核心修改) ---
+        
+        # 自动识别：长度 > 1 的是类别特征
+        cat_indices = [i for i, length in enumerate(all_field_lengths) if length > 1]
+        
+        print(f"    自动检测到 {len(cat_indices)} 个类别特征 (根据 field_lengths > 1)。")
+
+        if len(cat_indices) > 0:
+            # 为了避免 pandas 的 SettingWithCopyWarning 或类型混淆，
+            # 建议给列重命名为字符串，这样处理起来更清晰
+            X_train.columns = [str(i) for i in range(X_train.shape[1])]
+            X_test.columns  = [str(i) for i in range(X_test.shape[1])]
+
+            # 仅将检测到的类别列转换为 'category' 类型
+            for idx in cat_indices:
+                col_name = str(idx)
+                # 转换为 category
+                X_train[col_name] = X_train[col_name].astype('category')
+                
+                # 对齐测试集 (处理未知类别)
+                # set_categories 确保测试集即使有未见过的类别也不会报错(会变成NaN)，
+                # 或者确保其类别列表与训练集一致
+                X_test[col_name] = pd.Categorical(X_test[col_name], categories=X_train[col_name].cat.categories, ordered=False)
             
-            print("    分类特征转换完成。")
+            print("    已将类别特征转换为 pandas 'category' dtype。LightGBM 将自动识别它们。")
         else:
-            print("    未找到 (num_cat > 0) 分类特征。")
+            print("    未检测到类别特征，所有列将作为数值处理。")
 
-    except FileNotFoundError as e:
-        print(f"🔴 错误：找不到文件 {e.filename}。")
-        print("    请确保 config 中的路径正确，并且预处理脚本已成功运行。")
-        sys.exit(1)
-    except KeyError as e:
-        print(f"🔴 错误：Config 文件中缺少关键的键: {e}")
-        print("    请确保 cfg 包含 'data_train_eval_tabular', 'labels_train_eval_tabular', 'data_val_eval_tabular', 'labels_val_eval_tabular', 'num_con', 'num_cat', 'task', 'num_classes'")
-        sys.exit(1)
     except Exception as e:
-        print(f"🔴 加载数据时发生意外错误: {e}")
+        print(f"🔴 加载数据时发生错误: {e}")
         import traceback
-        traceback.print_exc()
+        traceback.print_traceback()
         sys.exit(1)
-        
-    # --- 4. 确定问题类型和评估指标 (此逻辑来自原始脚本，是正确的) ---
+
+    # --- 5. 确定问题类型 (保持不变) ---
     print("-" * 30)
     if task == 'classification':
-        # 重新获取，以防万一
         num_classes = cfg.get('num_classes', len(np.unique(y_train))) 
-        
         if num_classes == 2:
-            print(f"检测到二分类问题 (num_classes={num_classes})。")
-            problem_type = 'binary'
-            objective = 'binary'
-            num_class_param = {}
-            scoring_metric = 'roc_auc'
+            problem_type = 'binary'; objective = 'binary'; num_class_param = {}; scoring_metric = 'roc_auc'
         else:
-            print(f"检测到多分类问题 (num_classes={num_classes})。")
-            problem_type = 'multiclass'
-            objective = 'multiclass'
-            num_class_param = {'num_class': num_classes}
-            scoring_metric = 'accuracy'
-    
+            problem_type = 'multiclass'; objective = 'multiclass'; num_class_param = {'num_class': num_classes}; scoring_metric = 'accuracy'
     elif task == 'regression':
-        print("检测到回归问题。")
-        problem_type = 'regression'
-        objective = 'regression_l2'
-        num_class_param = {}
-        scoring_metric = 'neg_root_mean_squared_error'
-    
+        problem_type = 'regression'; objective = 'regression_l2'; num_class_param = {}; scoring_metric = 'neg_root_mean_squared_error'
     else:
-        print(f"错误: 不支持的任务类型 '{task}'。")
-        sys.exit(1)
+        print(f"错误: 不支持的任务类型 '{task}'"); sys.exit(1)
 
-    print(f"LGBM Objective: {objective}, GridSearchCV Scoring: {scoring_metric}")
-    print("-" * 30)
-
+    print(f"LGBM Objective: {objective}, Scoring: {scoring_metric}")
+    
     return X_train, y_train, X_test, y_test, problem_type, objective, num_class_param, scoring_metric
 
 
@@ -286,7 +239,7 @@ def main(cfg: DictConfig):
     X_train, y_train, X_test, y_test, problem_type, objective, num_class_param, scoring_metric = load_and_preprocess_data(cfg)
 
     # 允许 config.yaml 或命令行覆盖 'output_file_name'
-    output_filename = '/home/debian/TIP/mymodel/result/lgb_results.txt'
+    output_filename = '/root/mytip/mymodel/result/lgb_results.txt'
     seeds = [2022, 2023, 2024]
     
     # 3. 打开文件准备写入结果
