@@ -28,7 +28,9 @@ class ContrastiveImageDataset(Dataset):
   Can delete first channel (segmentation channel) if specified
   """
   def __init__(self, data: str, labels: str, transform: transforms.Compose, delete_segmentation: bool, augmentation_rate: float, img_size: int, live_loading: bool,
-               target: str, augmentation_speedup: bool=False) -> None:
+               target: str, augmentation_speedup: bool=False,
+               task: str='classification' # <--- [新增] 任务参数
+               ) -> None:
     """
     data:                 Path to torch file containing images
     labels:               Path to torch file containing labels
@@ -37,6 +39,7 @@ class ContrastiveImageDataset(Dataset):
     sim_matrix_path:      Path to file containing similarity matrix of subjects
     target:               DVM/CAD/Infarction
     """
+    self.task = task # <--- [新增] 保存任务类型
     self.data = torch.load(data)
     self.labels = torch.load(labels)
     self.transform = transform
@@ -81,8 +84,20 @@ class ContrastiveImageDataset(Dataset):
     Returns two augmented views of one image and its label
     """
     view_1, view_2 = self.generate_imaging_views(indx)
-
-    return view_1, view_2, self.labels[indx]
+    # --- [修改开始] ---
+    # 为了防止回归任务中 MSELoss 因为收到 Long 类型的数据而报错
+    raw_label = self.labels[indx]
+    
+    if self.task == 'regression':
+        # 回归任务：强制转为 float32
+        label = raw_label.clone().detach().to(torch.float)
+    else:
+        # 分类任务：强制转为 long (int64)
+        label = raw_label.clone().detach().to(torch.long)
+    
+    return view_1, view_2, label
+    # --- [修改结束] ---
+    # return view_1, view_2, self.labels[indx]
 
   def __len__(self) -> int:
     return len(self.data)

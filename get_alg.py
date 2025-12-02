@@ -1,7 +1,7 @@
 import torch
 
 # checkpoint 文件路径
-checkpoint_path = "/mnt/hdd/jiazy/checkpoints/dvm/DAFT/checkpoint_best_acc.ckpt"
+checkpoint_path = "/home/debian/checkpoint_best_acc.ckpt"
 
 # 加载 checkpoint
 checkpoint = torch.load(checkpoint_path, map_location="cpu")
@@ -13,7 +13,9 @@ else:
     print("❌ 'algorithm_name' not found in checkpoint keys.")
     print("Available keys:", checkpoint.keys())
 
-print(checkpoint['hyper_parameters']['checkpoint'])
+print(checkpoint['hyper_parameters']['algorithm_name'])
+print(checkpoint['hyper_parameters']['lr_eval'])
+
 
 # import torch
 # from omegaconf import OmegaConf, open_dict

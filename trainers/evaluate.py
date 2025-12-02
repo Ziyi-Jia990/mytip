@@ -1,192 +1,181 @@
-import os 
-from os.path import join
+from typing import Tuple
 
 import torch
-from torch.utils.data import DataLoader
+import torchmetrics
 import pytorch_lightning as pl
-from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
-from torch.utils.data.sampler import WeightedRandomSampler
-from torch import cuda
-import pandas as pd
-import numpy as np
+# 引入 R2Score 和 MeanSquaredError
+from torchmetrics import R2Score, MeanSquaredError
 
-from datasets.ImageDataset import ImageDataset
-from datasets.TabularDataset import TabularDataset
-from datasets.ImagingAndTabularDataset import ImagingAndTabularDataset
-from datasets.TabularDataset import TabularDataset
-from models.Evaluator import Evaluator
-from models.Evaluator_regression import Evaluator_Regression
-from utils.utils import grab_arg_from_checkpoint, grab_hard_eval_image_augmentations, grab_wids, create_logdir
-
-def load_datasets(hparams):
-  if hparams.eval_datatype=='imaging':
-      train_dataset = ImageDataset(hparams.data_train_eval_imaging, hparams.labels_train_eval_imaging, hparams.delete_segmentation, hparams.eval_train_augment_rate, grab_arg_from_checkpoint(hparams, 'img_size'), target=hparams.target, train=True, live_loading=hparams.live_loading, task=hparams.task,
-                                   dataset_name=hparams.dataset_name, augmentation_speedup=hparams.augmentation_speedup)
-      val_dataset = ImageDataset(hparams.data_val_eval_imaging, hparams.labels_val_eval_imaging, hparams.delete_segmentation, hparams.eval_train_augment_rate, grab_arg_from_checkpoint(hparams, 'img_size'), target=hparams.target, train=False, live_loading=hparams.live_loading, task=hparams.task,
-                                 dataset_name=hparams.dataset_name, augmentation_speedup=hparams.augmentation_speedup)
-  elif hparams.eval_datatype=='multimodal':
-    assert hparams.strategy == 'tip'
-    train_dataset = ImagingAndTabularDataset(
-      hparams.data_train_eval_imaging, hparams.delete_segmentation, hparams.eval_train_augment_rate, 
-      hparams.data_train_eval_tabular, hparams.field_lengths_tabular, hparams.eval_one_hot,
-      hparams.labels_train_eval_imaging, grab_arg_from_checkpoint(hparams, 'img_size'), hparams.live_loading, train=True, target=hparams.target, corruption_rate=hparams.corruption_rate,
-      data_base=hparams.data_base, missing_tabular=hparams.missing_tabular, missing_strategy=hparams.missing_strategy, missing_rate=hparams.missing_rate, 
-      augmentation_speedup=hparams.augmentation_speedup,algorithm_name=hparams.algorithm_name
-    )
-    val_dataset = ImagingAndTabularDataset(
-      hparams.data_val_eval_imaging, hparams.delete_segmentation, hparams.eval_train_augment_rate, 
-      hparams.data_val_eval_tabular, hparams.field_lengths_tabular, hparams.eval_one_hot,
-      hparams.labels_val_eval_imaging, grab_arg_from_checkpoint(hparams, 'img_size'), hparams.live_loading, train=False, target=hparams.target, corruption_rate=hparams.corruption_rate,
-      data_base=hparams.data_base, missing_tabular=hparams.missing_tabular, missing_strategy=hparams.missing_strategy, missing_rate=hparams.missing_rate,
-      augmentation_speedup=hparams.augmentation_speedup,algorithm_name=hparams.algorithm_name
-    )
-    hparams.input_size = train_dataset.get_input_size()
-  elif hparams.eval_datatype == 'tabular':
-    train_dataset = TabularDataset(hparams.data_train_eval_tabular, hparams.labels_train_eval_tabular, hparams.eval_train_augment_rate, hparams.corruption_rate, train=True, 
-                                  eval_one_hot=hparams.eval_one_hot, field_lengths_tabular=hparams.field_lengths_tabular,
-                                  data_base=hparams.data_base, strategy=hparams.strategy, missing_tabular=hparams.missing_tabular, missing_strategy=hparams.missing_strategy, missing_rate=hparams.missing_rate,target=hparams.target)
-    val_dataset = TabularDataset(hparams.data_val_eval_tabular, hparams.labels_val_eval_tabular, hparams.eval_train_augment_rate, hparams.corruption_rate, train=False, 
-                                eval_one_hot=hparams.eval_one_hot, field_lengths_tabular=hparams.field_lengths_tabular,
-                                data_base=hparams.data_base, strategy=hparams.strategy, missing_tabular=hparams.missing_tabular, missing_strategy=hparams.missing_strategy, missing_rate=hparams.missing_rate,target=hparams.target)
-    hparams.input_size = train_dataset.get_input_size()
-  elif hparams.eval_datatype == 'imaging_and_tabular':
-    train_dataset = ImagingAndTabularDataset(
-      hparams.data_train_eval_imaging, hparams.delete_segmentation, hparams.augmentation_rate, 
-      hparams.data_train_eval_tabular, hparams.field_lengths_tabular, hparams.eval_one_hot,
-      hparams.labels_train_eval_imaging, hparams.img_size, hparams.live_loading, train=True, target=hparams.target,
-      corruption_rate=hparams.corruption_rate, data_base=hparams.data_base, augmentation_speedup=hparams.augmentation_speedup,
-       missing_tabular=hparams.missing_tabular, missing_strategy=hparams.missing_strategy, missing_rate=hparams.missing_rate,algorithm_name=hparams.algorithm_name
-    )
-    val_dataset = ImagingAndTabularDataset(
-      hparams.data_val_eval_imaging, hparams.delete_segmentation, hparams.augmentation_rate, 
-      hparams.data_val_eval_tabular, hparams.field_lengths_tabular, hparams.eval_one_hot,
-      hparams.labels_val_eval_imaging, hparams.img_size, hparams.live_loading, train=False, target=hparams.target,
-      corruption_rate=hparams.corruption_rate, data_base=hparams.data_base, augmentation_speedup=hparams.augmentation_speedup,
-       missing_tabular=hparams.missing_tabular, missing_strategy=hparams.missing_strategy, missing_rate=hparams.missing_rate,algorithm_name=hparams.algorithm_name
-    )
-    hparams.input_size = train_dataset.get_input_size()
-  else:
-    raise Exception('argument dataset must be set to imaging, tabular, multimodal or imaging_and_tabular')
-  return train_dataset, val_dataset
+from models.TabularModel import TabularModel
+from models.ImagingModel import ImagingModel
+from models.MultimodalModel import MultimodalModel
 
 
-def evaluate(hparams, wandb_logger):
-  """
-  Evaluates trained contrastive models. 
-  
-  IN
-  hparams:      All hyperparameters
-  wandb_logger: Instantiated weights and biases logger
-  """
-  pl.seed_everything(hparams.seed)
+class Evaluator_Regression(pl.LightningModule):
+  def __init__(self, hparams):
+    super().__init__()
+    self.save_hyperparameters(hparams)
 
-  if hparams.missing_tabular == True and hparams.missing_strategy != 'value':
-      check_list = []
-      for data_path in [hparams.data_train_eval_tabular, hparams.data_val_eval_tabular, hparams.data_test_eval_tabular]:
-        tabular_name = data_path.split('/')[-1].split('.')[0]
-        missing_mask_path = join(hparams.data_base, 'missing_mask', f'{tabular_name}_{hparams.target}_{hparams.missing_strategy}_{hparams.missing_rate}.npy')
-        missing_mask = np.load(missing_mask_path)
-        check_list.append(missing_mask[0])
-      assert np.all(check_list[0] == check_list[1]) and np.all(check_list[0] == check_list[2]), 'Missing mask is not the same for train, val and test'
-      print(f'Num of missing: {np.sum(check_list[0])}, Current missing mask: {np.where(check_list[0])}')
-  
-  train_dataset, val_dataset = load_datasets(hparams)
-  
-  drop = ((len(train_dataset)%hparams.batch_size)==1)
-
-  sampler = None
-  if hparams.weights:
-    print('Using weighted random sampler(')
-    weights_list = [hparams.weights[int(l)] for l in train_dataset.labels]
-    sampler = WeightedRandomSampler(weights=weights_list, num_samples=len(weights_list), replacement=True)
-  
-  num_gpus = cuda.device_count()
-  train_loader = DataLoader(
-    train_dataset,
-    num_workers=hparams.num_workers, batch_size=hparams.batch_size, sampler=sampler,
-    pin_memory=True, shuffle=(sampler is None), drop_last=drop, persistent_workers=True)
-  
-  print(f'Train shuffle is: {sampler is None}')
-
-  val_loader = DataLoader(
-    val_dataset,
-    num_workers=hparams.num_workers, batch_size=hparams.batch_size,
-    pin_memory=True, shuffle=False, persistent_workers=True)
-  
-  print(f"Number of training batches: {len(train_loader)}")
-  print(f"Number of validation batches: {len(val_loader)}")
-  print(f'Valid batch size: {hparams.batch_size*cuda.device_count()}')
-
-  logdir = create_logdir('eval', hparams.resume_training, wandb_logger)
-
-  if hparams.task == 'regression':
-    model = Evaluator_Regression(hparams)
-  else:
-    model = Evaluator(hparams)
-  
-  mode = 'max'
-  
-  callbacks = []
-  callbacks.append(ModelCheckpoint(monitor=f'eval.val.{hparams.eval_metric}', mode=mode, filename=f'checkpoint_best_{hparams.eval_metric}', dirpath=logdir))
-  callbacks.append(EarlyStopping(monitor=f'eval.val.{hparams.eval_metric}', min_delta=0.0002, patience=int(10*(1/hparams.val_check_interval)), verbose=False, mode=mode))
-  if hparams.use_wandb:
-    callbacks.append(LearningRateMonitor(logging_interval='epoch'))
-
-
-  trainer = Trainer.from_argparse_args(hparams, accelerator="gpu", devices=cuda.device_count(), callbacks=callbacks, logger=wandb_logger, max_epochs=hparams.max_epochs, check_val_every_n_epoch=hparams.check_val_every_n_epoch, val_check_interval=hparams.val_check_interval, limit_train_batches=hparams.limit_train_batches, limit_val_batches=hparams.limit_val_batches, limit_test_batches=hparams.limit_test_batches)
-  trainer.fit(model, train_loader, val_loader)
-  eval_df = pd.DataFrame(trainer.callback_metrics, index=[0])
-  eval_df.to_csv(join(logdir, 'eval_results.csv'), index=False)
-  
-  wandb_logger.log_metrics({f'best.val.{hparams.eval_metric}': model.best_val_score})
-
-
-  if hparams.test_and_eval:
+    # 模型初始化保持不变
+    if self.hparams.datatype == 'imaging' or self.hparams.datatype == 'multimodal':
+      self.model = ImagingModel(self.hparams)
+    if self.hparams.datatype == 'tabular':
+      self.model = TabularModel(self.hparams)
+    if self.hparams.datatype == 'imaging_and_tabular':
+      self.model = MultimodalModel(self.hparams)
     
-    if hparams.eval_datatype == 'imaging':
-        test_dataset = ImageDataset(hparams.data_test_eval_imaging, hparams.labels_test_eval_imaging, hparams.delete_segmentation, 0, grab_arg_from_checkpoint(hparams, 'img_size'), target=hparams.target, train=False, live_loading=hparams.live_loading, task=hparams.task,
-                                    dataset_name=hparams.dataset_name, augmentation_speedup=hparams.augmentation_speedup)
-        hparams.transform_test = test_dataset.transform_val.__repr__()
-    elif hparams.eval_datatype == 'multimodal':
-      assert hparams.strategy == 'tip'
-      test_dataset = ImagingAndTabularDataset(
-      hparams.data_test_eval_imaging, hparams.delete_segmentation, 0, 
-      hparams.data_test_eval_tabular, hparams.field_lengths_tabular, hparams.eval_one_hot,
-      hparams.labels_test_eval_imaging, grab_arg_from_checkpoint(hparams, 'img_size'), hparams.live_loading, train=False, target=hparams.target, corruption_rate=0,
-      data_base=hparams.data_base, missing_tabular=hparams.missing_tabular, missing_strategy=hparams.missing_strategy, missing_rate=hparams.missing_rate,
-      augmentation_speedup=hparams.augmentation_speedup,algorithm_name=hparams.algorithm_name
-    )
-      hparams.input_size = test_dataset.get_input_size()
-    elif hparams.eval_datatype == 'tabular':
-      test_dataset = TabularDataset(hparams.data_test_eval_tabular, hparams.labels_test_eval_tabular, 0, 0, train=False, 
-                                  eval_one_hot=hparams.eval_one_hot, field_lengths_tabular=hparams.field_lengths_tabular,
-                                  data_base=hparams.data_base, 
-                                  strategy=hparams.strategy, missing_tabular=hparams.missing_tabular, missing_strategy=hparams.missing_strategy, missing_rate=hparams.missing_rate,target=hparams.target)
-      hparams.input_size = test_dataset.get_input_size()
-    elif hparams.eval_datatype == 'imaging_and_tabular':
-      test_dataset = ImagingAndTabularDataset(
-        hparams.data_test_eval_imaging, hparams.delete_segmentation, 0, 
-        hparams.data_test_eval_tabular, hparams.field_lengths_tabular, hparams.eval_one_hot,
-        hparams.labels_test_eval_imaging, hparams.img_size, hparams.live_loading, train=False, target=hparams.target,
-        corruption_rate=0.0, data_base=hparams.data_base, missing_tabular=hparams.missing_tabular, missing_strategy=hparams.missing_strategy, missing_rate=hparams.missing_rate,
-        augmentation_speedup=hparams.augmentation_speedup,algorithm_name=hparams.algorithm_name)
-      hparams.input_size = test_dataset.get_input_size()
-    else:
-      raise Exception('argument dataset must be set to imaging, tabular or multimodal')
+    # 损失函数
+    self.criterion = torch.nn.MSELoss()
+
+    # --- [修改点 1] 初始化指标: MAE, RMSE, R2 ---
+    # 1. MAE (原代码已有)
+    self.mae_train = torchmetrics.MeanAbsoluteError()
+    self.mae_val = torchmetrics.MeanAbsoluteError()
+    self.mae_test = torchmetrics.MeanAbsoluteError()
+
+    # 2. RMSE (设置 squared=False 即为 RMSE)
+    self.rmse_train = MeanSquaredError(squared=False)
+    self.rmse_val = MeanSquaredError(squared=False)
+    self.rmse_test = MeanSquaredError(squared=False)
+
+    # 3. R2 Score
+    self.r2_train = R2Score()
+    self.r2_val = R2Score()
+    self.r2_test = R2Score()
+
+    # 保留原有的 PCC (如果不想要可以删除)
+    self.pcc_train = torchmetrics.PearsonCorrCoef(num_outputs=1) # 通常回归输出为1
+    self.pcc_val = torchmetrics.PearsonCorrCoef(num_outputs=1)
+    self.pcc_test = torchmetrics.PearsonCorrCoef(num_outputs=1)
     
-    drop = ((len(test_dataset)%hparams.batch_size)==1)
+    # 修改用于 ModelCheckpoint 的监控指标，建议使用 val_rmse 或 val_r2
+    self.best_val_score = -float('inf') # R2 越大越好，MAE/RMSE 越小越好，这里假设监控 R2
 
-    test_loader = DataLoader(
-      test_dataset,
-      num_workers=hparams.num_workers, batch_size=512,  
-      pin_memory=True, shuffle=False, drop_last=drop, persistent_workers=True)
+    print(self.model)
+
+  def forward(self, x: torch.Tensor) -> torch.Tensor:
+    y_hat = self.model(x)
+    return y_hat
+
+  def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], _) -> torch.Tensor:
+    x, y = batch
+    y_hat = self.forward(x)
+    
+    # 确保维度匹配，防止广播错误
+    if y_hat.shape != y.shape:
+        y = y.view_as(y_hat)
+
+    loss = self.criterion(y_hat, y)
+    y_hat = y_hat.detach()
+
+    # 更新指标
+    self.mae_train(y_hat, y)
+    self.rmse_train(y_hat, y)
+    self.r2_train(y_hat, y)
+    self.pcc_train(y_hat, y)
+
+    # Logging
+    self.log('eval.train.loss', loss, on_epoch=True, on_step=False)
+    self.log('eval.train.mae', self.mae_train, on_epoch=True, on_step=False)
+    self.log('eval.train.rmse', self.rmse_train, on_epoch=True, on_step=False)
+    self.log('eval.train.r2', self.r2_train, on_epoch=True, on_step=False)
+
+    return loss
   
-    print(f"Number of testing batches: {len(test_loader)}")
+  def training_epoch_end(self, _) -> None:
+    # 只需要重置，logging 在 training_step 设置 on_epoch=True 已经被自动处理了
+    # 如果你需要手动处理 PCC mean:
+    epoch_pcc_train = self.pcc_train.compute()
+    self.log('eval.train.pcc.mean', epoch_pcc_train, on_epoch=True, on_step=False)
+    
+    self.mae_train.reset()
+    self.rmse_train.reset()
+    self.r2_train.reset()
+    self.pcc_train.reset()
 
-    model.freeze()
+  def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], _) -> torch.Tensor:
+    x, y = batch
+    y_hat = self.forward(x)
+    
+    if y_hat.shape != y.shape:
+        y = y.view_as(y_hat)
 
-    trainer = Trainer.from_argparse_args(hparams, gpus=1, logger=wandb_logger)
-    test_results = trainer.test(model, test_loader, ckpt_path=os.path.join(logdir,f'checkpoint_best_{hparams.eval_metric}.ckpt'))
-    df = pd.DataFrame(test_results)
-    df.to_csv(join(logdir, 'test_results.csv'), index=False)
+    loss = self.criterion(y_hat, y)
+    y_hat = y_hat.detach()
+
+    # 更新验证集指标
+    self.mae_val(y_hat, y)
+    self.rmse_val(y_hat, y)
+    self.r2_val(y_hat, y)
+    self.pcc_val(y_hat, y)
+    
+    self.log('eval.val.loss', loss, on_epoch=True, on_step=False)
+
+  def validation_epoch_end(self, _) -> None:
+    if self.trainer.sanity_checking:
+      return  
+
+    # 计算指标
+    epoch_mae_val = self.mae_val.compute()
+    epoch_rmse_val = self.rmse_val.compute()
+    epoch_r2_val = self.r2_val.compute()
+    epoch_pcc_val = self.pcc_val.compute()
+
+    # Log
+    self.log('eval.val.mae', epoch_mae_val, on_epoch=True, on_step=False)
+    self.log('eval.val.rmse', epoch_rmse_val, on_epoch=True, on_step=False)
+    self.log('eval.val.r2', epoch_r2_val, on_epoch=True, on_step=False)
+    self.log('eval.val.pcc.mean', epoch_pcc_val, on_epoch=True, on_step=False)
+    
+    # 更新 Best Score (这里以 R2 为例，R2 越大越好)
+    self.best_val_score = max(self.best_val_score, epoch_r2_val)
+    
+    # 重置
+    self.mae_val.reset()
+    self.rmse_val.reset()
+    self.r2_val.reset()
+    self.pcc_val.reset()
+
+  def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], _) -> None:
+    x, y = batch 
+    y_hat = self.forward(x)
+    
+    if y_hat.shape != y.shape:
+        y = y.view_as(y_hat)
+        
+    y_hat = y_hat.detach()
+
+    # 更新测试集指标
+    self.mae_test(y_hat, y)
+    self.rmse_test(y_hat, y)
+    self.r2_test(y_hat, y)
+    self.pcc_test(y_hat, y)
+
+  def test_epoch_end(self, _) -> None:
+    test_mae = self.mae_test.compute()
+    test_rmse = self.rmse_test.compute()
+    test_r2 = self.r2_test.compute()
+    test_pcc = self.pcc_test.compute()
+
+    self.log('test.mae', test_mae)
+    self.log('test.rmse', test_rmse)
+    self.log('test.r2', test_r2)
+    self.log('test.pcc.mean', test_pcc)
+    
+    self.mae_test.reset()
+    self.rmse_test.reset()
+    self.r2_test.reset()
+    self.pcc_test.reset()
+
+  def configure_optimizers(self):
+    optimizer = torch.optim.Adam(self.model.parameters(), lr=self.hparams.lr_eval, weight_decay=self.hparams.weight_decay_eval)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=int(10/self.hparams.check_val_every_n_epoch), min_lr=self.hparams.lr*0.0001)
+    
+    return {
+       "optimizer": optimizer, 
+       "lr_scheduler": {
+         "scheduler": scheduler,
+         "monitor": 'eval.val.loss', # 或者 'eval.val.rmse'
+         "strict": False
+       }
+     }

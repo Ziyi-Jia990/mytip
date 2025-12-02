@@ -37,22 +37,26 @@ def load_datasets(hparams):
         hparams.data_train_imaging, hparams.delete_segmentation, transform, hparams.augmentation_rate, 
         hparams.data_train_tabular, hparams.corruption_rate, hparams.replace_random_rate, hparams.replace_special_rate,
         hparams.field_lengths_tabular, hparams.one_hot,
-        hparams.labels_train, hparams.img_size, hparams.live_loading, hparams.augmentation_speedup, target=hparams.target)
+        hparams.labels_train, hparams.img_size, hparams.live_loading, hparams.augmentation_speedup, target=hparams.target,
+        task=hparams.task)
       val_dataset = ContrastiveReconstructImagingAndTabularDataset(
         hparams.data_val_imaging, hparams.delete_segmentation, transform, hparams.augmentation_rate, 
         hparams.data_val_tabular, hparams.corruption_rate,  hparams.replace_random_rate, hparams.replace_special_rate, 
         hparams.field_lengths_tabular, hparams.one_hot,
-        hparams.labels_val, hparams.img_size, hparams.live_loading, hparams.augmentation_speedup, target=hparams.target)
+        hparams.labels_val, hparams.img_size, hparams.live_loading, hparams.augmentation_speedup, target=hparams.target,
+        task=hparams.task)
     else:
       # for MMCL
       train_dataset = ContrastiveImagingAndTabularDataset(
         hparams.data_train_imaging, hparams.delete_segmentation, transform, hparams.augmentation_rate, 
         hparams.data_train_tabular, hparams.corruption_rate, hparams.field_lengths_tabular, hparams.one_hot,
-        hparams.labels_train, hparams.img_size, hparams.live_loading, hparams.augmentation_speedup, target=hparams.target)
+        hparams.labels_train, hparams.img_size, hparams.live_loading, hparams.augmentation_speedup, target=hparams.target,
+        task=hparams.task)
       val_dataset = ContrastiveImagingAndTabularDataset(
         hparams.data_val_imaging, hparams.delete_segmentation, transform, hparams.augmentation_rate, 
         hparams.data_val_tabular, hparams.corruption_rate, hparams.field_lengths_tabular, hparams.one_hot,
-        hparams.labels_val, hparams.img_size, hparams.live_loading, hparams.augmentation_speedup, target=hparams.target)
+        hparams.labels_val, hparams.img_size, hparams.live_loading, hparams.augmentation_speedup, target=hparams.target,
+        task=hparams.task)
     hparams.input_size = train_dataset.get_input_size()
   elif hparams.datatype == 'imaging':
     # for SSL image models

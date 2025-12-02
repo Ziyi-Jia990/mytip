@@ -34,8 +34,9 @@ def run(args: DictConfig):
   time.sleep(random.randint(1,5)) # Prevents multiple runs getting the same version when launching many jobs at once
 
   if args.resume_training:
-    if args.wandb_id:
-      wandb_id = args.wandb_id
+    # if args.wandb_id:
+    #   wandb_id = args.wandb_id
+    wandb_id = args.wandb_id if args.wandb_id else None
     tmp_data_base = args.data_base
     checkpoint = args.checkpoint
     ckpt = torch.load(args.checkpoint)

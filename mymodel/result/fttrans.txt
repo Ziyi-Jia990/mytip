@@ -174,7 +174,9 @@ labels_test_eval_imaging: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/f
 {
   "hyperparams": {
     "seeds": [
-      2022
+      2022,
+      2023,
+      2024
     ],
     "batch_size": 256,
     "n_trials": 10,
@@ -213,12 +215,14 @@ labels_test_eval_imaging: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/f
 }
 
 ============================== 所有实验最终总结 ==============================
-种子: 2022 | acc:0.5190,auc:0.7622,macro-F1:0.3772
+种子: 2022 | acc:0.5261,auc:0.7697,macro-F1:0.3716
+种子: 2023 | acc:0.4929,auc:0.7669,macro-F1:0.3660
+种子: 2024 | acc:0.5024,auc:0.7707,macro-F1:0.3609
 
-最佳参数的例子 (来自最后一个种子 2022):
-{'n_blocks': 3, 'ffn_d_hidden': 512, 'residual_dropout': 0.10915204630800122, 'attention_dropout': 0.2929323504149535, 'ffn_dropout': 0.25908462622622147, 'd_token': 192, 'learning_rate': 0.0001, 'weight_decay': 1e-05}
+最佳参数的例子 (来自最后一个种子 2024):
+{'n_blocks': 3, 'ffn_d_hidden': 64, 'residual_dropout': 0.181130119829332, 'attention_dropout': 0.437874063436074, 'ffn_dropout': 0.18396799001208675, 'd_token': 192, 'learning_rate': 0.0001, 'weight_decay': 1e-05}
 ================================================================================
---- 实验配置 (来自 config.yaml): breast_cancer ---
+--- 实验配置 (来自 config.yaml): skin_cancer ---
 comment: None
 pretrain: true
 run_eval: true
@@ -237,11 +241,11 @@ lr_finder_lrs:
 - 0.0001
 multitarget: null
 wandb_entity: siyiwind
-data_base: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features
+data_base: /mnt/hdd/jiazy/skin-cancer/features
 num_workers: 3
-algorithm_name: TIP
-strategy: tip
-dataset_name: dvm
+algorithm_name: tabular
+strategy: tabular
+dataset_name: skin_cancer
 exp_name: NA
 wandb_project: LaaF
 sql_address: null
@@ -269,26 +273,26 @@ imaging_pretrain_checkpoint: null
 pretrained_imaging_strategy: trainable
 multiple_lr: false
 batch_size: 256
-lr: 0.0003
-lr_eval: 0.0001
-weight_decay: 1.0e-05
-weight_decay_eval: 0
-val_check_interval: 1.0
-check_val_every_n_epoch: 1
-classifier_num_layers: 2
-lr_classifier: 0.0003
-weight_decay_classifier: 0.0001
+lr: None
+lr_eval: None
+weight_decay: None
+weight_decay_eval: None
+val_check_interval: None
+check_val_every_n_epoch: None
+classifier_num_layers: None
+lr_classifier: None
+weight_decay_classifier: None
 online_mlp: true
 augmentation_rate: 0.95
 crop_scale_lower: 0.08
 augmentation_speedup: true
-corruption_rate: 0.3
-one_hot: false
-eval_one_hot: false
-replace_special_rate: 0.5
-replace_random_rate: 0.0
-encoder_num_layers: 2
-projector_num_layers: 1
+corruption_rate: None
+one_hot: None
+eval_one_hot: None
+replace_special_rate: None
+replace_random_rate: None
+encoder_num_layers: None
+projector_num_layers: None
 init_strat: kaiming
 generate_embeddings: false
 keep_projector: false
@@ -299,8 +303,8 @@ finetune_ensemble: false
 vec2vec: false
 checkpoint_vec2vec: null
 checkpoint: null
-datatype: multimodal
-eval_datatype: multimodal
+datatype: tabular
+eval_datatype: tabular
 seed: 2022
 max_epochs: 500
 log_images: false
@@ -357,9 +361,9 @@ img_size: 128
 embedding_dim: 2048
 lr_imaging: 0.003
 lr_tabular: 0.0003
-target: breast_cancer
+target: skin_cancer
 task: classification
-num_classes: 4
+num_classes: 6
 weights: null
 live_loading: true
 delete_segmentation: false
@@ -368,27 +372,27 @@ eval_metric: acc
 data_orig: null
 low_data_splits:
 - ''
-num_cat: 5
-num_con: 1
-labels_train: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/train_labels.pt
-labels_val: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/val_labels.pt
-data_train_imaging: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/train_paths.pt
-data_val_imaging: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/val_paths.pt
-data_train_tabular: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/train_features.csv
-data_val_tabular: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/val_features.csv
-field_lengths_tabular: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/tabular_lengths.pt
-data_train_eval_tabular: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/train_features.csv
-labels_train_eval_tabular: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/train_labels.pt
-data_val_eval_tabular: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/val_features.csv
-labels_val_eval_tabular: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/val_labels.pt
-data_test_eval_tabular: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/test_features.csv
-labels_test_eval_tabular: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/test_labels.pt
-data_train_eval_imaging: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/train_paths.pt
-labels_train_eval_imaging: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/train_labels.pt
-data_val_eval_imaging: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/val_paths.pt
-labels_val_eval_imaging: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/val_labels.pt
-data_test_eval_imaging: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/test_paths.pt
-labels_test_eval_imaging: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features/test_labels.pt
+num_cat: 19
+num_con: 3
+labels_train: /mnt/hdd/jiazy/skin-cancer/features/train_labels.pt
+labels_val: /mnt/hdd/jiazy/skin-cancer/features/val_labels.pt
+data_train_imaging: /mnt/hdd/jiazy/skin-cancer/features/train_paths.pt
+data_val_imaging: /mnt/hdd/jiazy/skin-cancer/features/val_paths.pt
+data_train_tabular: /mnt/hdd/jiazy/skin-cancer/features/train_features.csv
+data_val_tabular: /mnt/hdd/jiazy/skin-cancer/features/val_features.csv
+field_lengths_tabular: /mnt/hdd/jiazy/skin-cancer/features/tabular_lengths.pt
+data_train_eval_tabular: /mnt/hdd/jiazy/skin-cancer/features/train_features.csv
+labels_train_eval_tabular: /mnt/hdd/jiazy/skin-cancer/features/train_labels.pt
+data_val_eval_tabular: /mnt/hdd/jiazy/skin-cancer/features/val_features.csv
+labels_val_eval_tabular: /mnt/hdd/jiazy/skin-cancer/features/val_labels.pt
+data_test_eval_tabular: /mnt/hdd/jiazy/skin-cancer/features/test_features.csv
+labels_test_eval_tabular: /mnt/hdd/jiazy/skin-cancer/features/test_labels.pt
+data_train_eval_imaging: /mnt/hdd/jiazy/skin-cancer/features/train_paths.pt
+labels_train_eval_imaging: /mnt/hdd/jiazy/skin-cancer/features/train_labels.pt
+data_val_eval_imaging: /mnt/hdd/jiazy/skin-cancer/features/val_paths.pt
+labels_val_eval_imaging: /mnt/hdd/jiazy/skin-cancer/features/val_labels.pt
+data_test_eval_imaging: /mnt/hdd/jiazy/skin-cancer/features/test_paths.pt
+labels_test_eval_imaging: /mnt/hdd/jiazy/skin-cancer/features/test_labels.pt
 
 --- 模型配置 (来自 ftt_model_config.json) ---
 {
@@ -435,10 +439,10 @@ labels_test_eval_imaging: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/f
 }
 
 ============================== 所有实验最终总结 ==============================
-种子: 2022 | acc:0.5190,auc:0.7622,macro-F1:0.3772
-种子: 2023 | acc:0.4716,auc:0.7672,macro-F1:0.3350
-种子: 2024 | acc:0.3957,auc:0.6995,macro-F1:0.3133
+种子: 2022 | acc:0.7348,auc:0.9317,macro-F1:0.4998
+种子: 2023 | acc:0.7435,auc:0.9434,macro-F1:0.5288
+种子: 2024 | acc:0.7435,auc:0.9434,macro-F1:0.5129
 
 最佳参数的例子 (来自最后一个种子 2024):
-{'n_blocks': 4, 'ffn_d_hidden': 256, 'residual_dropout': 0.10663609541232384, 'attention_dropout': 0.31807392020740216, 'ffn_dropout': 0.3676211628999612, 'd_token': 192, 'learning_rate': 0.0001, 'weight_decay': 1e-05}
+{'n_blocks': 3, 'ffn_d_hidden': 64, 'residual_dropout': 0.181130119829332, 'attention_dropout': 0.437874063436074, 'ffn_dropout': 0.18396799001208675, 'd_token': 192, 'learning_rate': 0.0001, 'weight_decay': 1e-05}
 ================================================================================

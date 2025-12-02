@@ -3,17 +3,17 @@
 # --- 1. 配置 ---
 
 # 您的候选学习率列表 (用空格隔开)
-LR_LIST="1e-3 1e-4 1e-5"
-# LR_LIST="1e-2"
+# LR_LIST="1e-3 1e-4"
+LR_LIST="1e-3"
 
 # 您的预训练 checkpoint 路径
-PRETRAINED_CKPT="/home/debian/TIP/results/runs/multimodal/breast_cancer_2022/checkpoint_last_epoch_499.ckpt"
+PRETRAINED_CKPT="/home/debian/TIP/results/runs/multimodal/pretrain_breast_cancer_1122_0125/checkpoint_last_epoch_499.ckpt"
 
 # 您的 Hydra 配置文件名
 CONFIG_NAME="config_breast_TIP.yaml"
 
 # 微调的最大 Epochs 数 (早停法会自动处理)
-MAX_EPOCHS_FINETUNE=100
+MAX_EPOCHS_FINETUNE=500
 
 # --- 2. 循环执行 ---
 

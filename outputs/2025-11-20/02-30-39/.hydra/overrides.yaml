@@ -1,0 +1,3 @@
+- resume_training=True
+- checkpoint=/home/debian/TIP/results/runs/multimodal/pretrain_TIP_breast_cancer_1117_0543/checkpoint_last_epoch_322.ckpt
+- use_wandb=False

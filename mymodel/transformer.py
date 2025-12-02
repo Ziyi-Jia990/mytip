@@ -35,6 +35,9 @@ class MyFTTransformer(nn.Module):
         self.ft_transformer = ft_transformer_module
 
     def forward(self, x_num, x_cat):
+        if x_num is not None and x_num.shape[1] == 0:
+            x_num = None
+            
         out = self.ft_transformer(x_num, x_cat)
 
         if isinstance(out, tuple):
@@ -50,92 +53,67 @@ class MyFTTransformer(nn.Module):
 
 # --- 1. 数据加载与预处理 (重构为函数) ---
 def load_and_preprocess_data(cfg: DictConfig, batch_size: int):
-    """
-    根据 config 对象加载和预处理数据。
-    
-    (重构版) 
-    此函数假设所有数据集都已通过标准预处理脚本处理。
-    它将加载已处理的 .csv (特征) 和 .pt (标签) 文件，
-    并根据 cfg.num_con 和 cfg.num_cat 拆分数值和分类特征。
-    """
-    
     print(f"--- 1. 正在为数据集: '{cfg.target}' (通用加载器) 加载数据 ---")
 
-    # ==================================================================
-    # == 通用数据加载逻辑
-    # ==================================================================
-    
     try:
-        # --- 1. 从 config 中获取关键元数据 ---
-        num_con = cfg.num_con
-        num_cat = cfg.num_cat
-        total_features = num_con + num_cat
-        print(f"    配置: {num_con} 个连续特征, {num_cat} 个分类特征。")
+        # --- 1. 加载字段长度 (基数) ---
+        # 你的逻辑： == 1 是连续特征， > 1 是类别特征
+        all_field_lengths = torch.load(cfg.field_lengths_tabular)
+        
+        # 转换为 list 或 numpy 方便处理
+        if isinstance(all_field_lengths, torch.Tensor):
+            all_field_lengths = all_field_lengths.cpu().tolist()
+            
+        # === 核心修改：动态识别索引 ===
+        con_indices = [i for i, length in enumerate(all_field_lengths) if length == 1]
+        cat_indices = [i for i, length in enumerate(all_field_lengths) if length > 1]
+        
+        num_con = len(con_indices)
+        num_cat = len(cat_indices)
+        
+        # 提取分类特征的基数 (Cardinalities)，顺序必须与 cat_indices 对应
+        cat_cardinalities = [all_field_lengths[i] for i in cat_indices]
 
-        # --- 2. 加载特征 (CSV, 无表头) ---
-        # 预处理脚本已确保列顺序为 [连续特征, 分类特征]
+        print(f"    自动检测结果: {num_con} 个连续特征, {num_cat} 个分类特征。")
+
+        # --- 2. 加载特征 (CSV) ---
         train_df = pd.read_csv(cfg.data_train_eval_tabular, header=None)
         val_df = pd.read_csv(cfg.data_val_eval_tabular, header=None)
         test_df = pd.read_csv(cfg.data_test_eval_tabular, header=None)
 
-        # 验证特征数量是否匹配
-        if train_df.shape[1] != total_features:
-            print(f"🔴 错误：加载的 train_df 有 {train_df.shape[1]} 列, 但 config 预期 {total_features} (num_con+num_cat) 列。")
-            print(f"    请检查: {cfg.data_train_eval_tabular}")
+        # 简单的校验
+        if train_df.shape[1] != len(all_field_lengths):
+            print(f"🔴 错误：CSV 列数 ({train_df.shape[1]}) 与 field_lengths 长度 ({len(all_field_lengths)}) 不一致！")
             sys.exit(1)
 
-        # --- 3. 加载标签 (PyTorch Tensors) ---
+        # --- 3. 加载标签 ---
         y_train = torch.load(cfg.labels_train_eval_tabular)
         y_val = torch.load(cfg.labels_val_eval_tabular)
         y_test = torch.load(cfg.labels_test_eval_tabular)
 
-        # --- 4. 加载字段长度 (基数) ---
-        # 预处理脚本保存的格式: [1, 1, ..., 1 (num_con 个), card1, card2, ... (num_cat 个)]
-        all_field_lengths = torch.load(cfg.field_lengths_tabular)
-        
-        # 仅提取分类特征的基数
-        cat_cardinalities = all_field_lengths[num_con:]
-        
-        # 验证基数列表长度是否匹配
-        if len(cat_cardinalities) != num_cat:
-            print(f"🔴 错误：'tabular_lengths.pt' 中提取了 {len(cat_cardinalities)} 个基数, 但 config 预期 {num_cat} 个分类特征。")
-            print(f"    加载的列表: {all_field_lengths}")
-            sys.exit(1)
-        
-        print(f"    成功加载 {len(cat_cardinalities)} 个分类特征的基数: {cat_cardinalities}")
-
-        
-    except FileNotFoundError as e:
-        print(f"🔴 错误：找不到文件 {e.filename}。")
-        print("    请确保 config 中的路径正确，并且预处理脚本已成功运行。")
-        sys.exit(1)
     except Exception as e:
-        print(f"🔴 加载数据时发生意外错误: {e}")
+        print(f"🔴 加载数据时发生错误: {e}")
         sys.exit(1)
 
-    # --- 5. 拆分特征并转换为 Tensors ---
+    # --- 4. 拆分特征并转换为 Tensors (修改版) ---
     
     def split_and_convert_to_tensors(df, y_tensor):
-        """
-        根据 num_con 拆分 df，并转换为 (num_tensor, cat_tensor, y_tensor)
+        # === 使用索引提取数据 ===
+        # 即使 con_indices 为空，df.iloc[:, []] 也会返回空 DF，不会报错
+        X_num_df = df.iloc[:, con_indices]
+        X_cat_df = df.iloc[:, cat_indices]
         
-        注意：我们加载的是 _TIP.csv 文件，它可能包含 NaNs (用于连续特征) 
-        或 -1 (用于分类特征)。
-        .astype(np.float32) 会保留 NaNs。
-        .astype(np.int64) 会保留 -1。
-        这是预期行为。
-        """
-        
-        # 拆分数值和分类
-        X_num_df = df.iloc[:, :num_con]
-        X_cat_df = df.iloc[:, num_con:]
-        
-        # 转换为 Tensors
-        # (我们假设 _TIP 文件中的 NaN 和 -1 是模型输入的一部分)
-        X_num_tensor = torch.tensor(X_num_df.values.astype(np.float32))
+        # === 关键修复：解决 rtdl 报错 ===
+        # 如果没有数值特征，直接设为 None，而不是空 Tensor
+        if len(con_indices) > 0:
+            X_num_tensor = torch.tensor(X_num_df.values.astype(np.float32))
+        else:
+            X_num_tensor = None  # <--- 这里直接给 None，解决之前的 AssertionError
+
+        # 类别特征处理
         X_cat_tensor = torch.tensor(X_cat_df.values.astype(np.int64))
         
-        # 确保标签是 long 类型 (用于分类) 或 float (用于回归)
+        # 标签处理
         if cfg.task == 'classification':
             y_tensor = y_tensor.long()
         else:
@@ -143,31 +121,64 @@ def load_and_preprocess_data(cfg: DictConfig, batch_size: int):
 
         return X_num_tensor, X_cat_tensor, y_tensor
 
-    print("    正在将数据帧 (DataFrame) 转换为张量 (Tensors)...")
+    print("    正在根据 field_lengths 拆分并转换数据...")
+    # 这里原来的 Dataset 可能会报错，因为 TensorDataset 不支持 None
+    # 我们需要下面特别处理 TensorDataset
+    
     X_train_num, X_train_cat, y_train = split_and_convert_to_tensors(train_df, y_train)
     X_val_num, X_val_cat, y_val = split_and_convert_to_tensors(val_df, y_val)
     X_test_num, X_test_cat, y_test = split_and_convert_to_tensors(test_df, y_test)
     
-    print("    数据加载和处理完成。")
-
     # ==================================================================
-    # == 创建 DataLoaders (通用)
+    # == 创建 DataLoaders (需要处理 None 的情况)
     # ==================================================================
-    print("--- 2. 正在创建 DataLoaders ---")
     
+    # 定义一个安全的 Dataset 类，允许 x_num 为 None
+    class SafeTabularDataset(torch.utils.data.Dataset):
+        def __init__(self, x_num, x_cat, y):
+            self.x_num = x_num
+            self.x_cat = x_cat
+            self.y = y
+            
+        def __len__(self):
+            return len(self.y)
+            
+        def __getitem__(self, idx):
+            # 如果 x_num 是 None，返回一个占位符或者在 collate_fn 里处理
+            # 简单起见，这里我们返回一个空的 tensor (如果是None)，
+            # 但既然我们上面为了解决 rtdl 改成了 None，这里为了 DataLoader 方便，
+            # 我们可以保留 None，但在取出时要注意。
+            
+            # 更加简便的方法：
+            # 如果 x_num 是 None，我们就不把它放进 TensorDataset，而是造一个自定义 Dataset
+            num_val = self.x_num[idx] if self.x_num is not None else torch.empty(0)
+            return num_val, self.x_cat[idx], self.y[idx]
+
+    # 为了不引入复杂的 Dataset 类，最简单的 Hack 方法：
+    # 如果 x_num 是 None，我们还是变回空 Tensor 存入 DataLoader，
+    # 但是在 Model 的 forward 里进行判断（就像上一条回复建议的那样）。
+    
+    # 修正策略：
+    # 1. 这里 DataLoader 里还是存空 Tensor (为了方便批处理)
+    # 2. Model 里加判断 (上一条回复的方案)
+    # 这样改动最小。
+    
+    # 重新修正 split_and_convert_to_tensors 的返回值，改回返回 Tensor
+    if X_train_num is None: X_train_num = torch.empty((len(y_train), 0))
+    if X_val_num is None: X_val_num = torch.empty((len(y_val), 0))
+    if X_test_num is None: X_test_num = torch.empty((len(y_test), 0))
+
     try:
         train_dataset = TensorDataset(X_train_num, X_train_cat, y_train)
         val_dataset = TensorDataset(X_val_num, X_val_cat, y_val)
         test_dataset = TensorDataset(X_test_num, X_test_cat, y_test)
     except Exception as e:
-        print(f"🔴 创建 TensorDataset 时出错: {e}")
-        print("    请检查所有 train/val/test 文件的样本量是否一致。")
+        print(f"🔴 创建 Dataset 出错: {e}")
         sys.exit(1)
         
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-    print("DataLoaders 创建完成。")
 
     # --- 3. 准备模型输入 ---
     
@@ -384,7 +395,7 @@ def train_final_model(best_params, cfg, seed, loaders, model_inputs, device,
     return model
 
 # 阶段三函数：在测试集上评估
-def evaluate_final_model(final_model, test_loader, task, device):
+def evaluate_final_model(cfg, final_model, test_loader, task, device):
     final_model.eval()
     all_preds_proba, all_labels = [], []
     with torch.no_grad():
@@ -408,7 +419,12 @@ def evaluate_final_model(final_model, test_loader, task, device):
     if task == 'classification':
         all_preds_class = np.argmax(all_preds_proba, axis=1)
         acc = accuracy_score(all_labels, all_preds_class)
-        auc = roc_auc_score(all_labels, all_preds_proba, multi_class='ovr', average='macro')
+        # auc = roc_auc_score(all_labels, all_preds_proba, multi_class='ovr', average='macro')
+        if cfg.num_classes == 2:
+            auc = roc_auc_score(all_labels, all_preds_proba[:, 1])
+        else:
+            # 如果未来有多分类需求，保留原逻辑
+            auc = roc_auc_score(all_labels, all_preds_proba, multi_class='ovr', average='macro')
         macro_f1 = f1_score(all_labels, all_preds_class, average='macro')
         
         metrics_dict = {'acc': acc, 'auc': auc, 'macro-F1': macro_f1}
@@ -503,40 +519,85 @@ def main(cfg: DictConfig):
     # 3. 加载数据, 传入 batch_size
     loaders, model_inputs = load_and_preprocess_data(cfg, batch_size)
 
+    # for seed in seeds:
+    #     print("\n" + "="*30 + f" 开始执行，随机种子: {seed} " + "="*30)
+    #     set_seed(seed)
+
+    #     # 4. 生成随机超参数组合 (使用来自 JSON 的 search_space)
+    #     param_combinations = []
+    #     for _ in range(N_TRIALS):
+    #         params = {
+    #             'n_blocks': random.choice(search_space['n_blocks']),
+    #             'ffn_d_hidden': random.choice(search_space['ffn_d_hidden']),
+    #             'residual_dropout': random.uniform(*search_space['residual_dropout']),
+    #             'attention_dropout': random.uniform(*search_space['attention_dropout']),
+    #             'ffn_dropout': random.uniform(*search_space['ffn_dropout']),
+    #             'd_token': D_TOKEN, 
+    #             'learning_rate': LEARNING_RATE, 
+    #             'weight_decay': WEIGHT_DECAY,
+    #         }
+    #         param_combinations.append(params)
+        
+    #     # 5. 阶段一：搜索
+    #     best_params = search_for_best_params(
+    #         param_combinations, cfg, seed, loaders, model_inputs, device
+    #     )
+        
+    #     # [!] 6. 阶段二：训练, 传入 patience 和 max_epochs
+    #     final_model = train_final_model(
+    #         best_params, cfg, seed, loaders, model_inputs, device,
+    #         patience=patience, max_epochs=max_epochs
+    #     )
+        
+    #     # 7. 阶段三：评估
+    #     print("\n" + "-"*10 + f" [种子 {seed}] 阶段三：在测试集上进行最终评估 " + "-"*10)
+    #     metrics_dict, result_line = evaluate_final_model(
+    #         final_model, loaders['test'], model_inputs['task'], device
+    #     )
+        
+    #     result_dict = {
+    #         'seed': seed, 
+    #         'best_params': best_params, 
+    #         'result_line': result_line,
+    #         **metrics_dict
+    #     }
+    #     final_results_summary.append(result_dict)
+
+    manual_best_params = {
+        'n_blocks': 3, 
+        'ffn_d_hidden': 64, 
+        'residual_dropout': 0.181130119829332, 
+        'attention_dropout': 0.437874063436074, 
+        'ffn_dropout': 0.18396799001208675, 
+        'd_token': 192, 
+        'learning_rate': 0.0001, 
+        'weight_decay': 1e-05
+    }
+    
+    print("!!! 检测到手动模式：跳过阶段一搜索，直接使用已知最佳参数进行训练 !!!")
+
     for seed in seeds:
         print("\n" + "="*30 + f" 开始执行，随机种子: {seed} " + "="*30)
         set_seed(seed)
 
-        # 4. 生成随机超参数组合 (使用来自 JSON 的 search_space)
-        param_combinations = []
-        for _ in range(N_TRIALS):
-            params = {
-                'n_blocks': random.choice(search_space['n_blocks']),
-                'ffn_d_hidden': random.choice(search_space['ffn_d_hidden']),
-                'residual_dropout': random.uniform(*search_space['residual_dropout']),
-                'attention_dropout': random.uniform(*search_space['attention_dropout']),
-                'ffn_dropout': random.uniform(*search_space['ffn_dropout']),
-                'd_token': D_TOKEN, 
-                'learning_rate': LEARNING_RATE, 
-                'weight_decay': WEIGHT_DECAY,
-            }
-            param_combinations.append(params)
+        # 🔴 2. 注释掉阶段一搜索代码
+        # param_combinations = ...
+        # best_params = search_for_best_params(...)
         
-        # 5. 阶段一：搜索
-        best_params = search_for_best_params(
-            param_combinations, cfg, seed, loaders, model_inputs, device
-        )
-        
-        # [!] 6. 阶段二：训练, 传入 patience 和 max_epochs
+        # 直接赋值
+        best_params = manual_best_params
+
+        # 🔴 3. 执行阶段二 (这个必须重跑，因为模型文件之前被自动删除了)
+        # 这次跑会很快，因为只需要训练这一个模型，而且根据日志它在第10个epoch就早停了
         final_model = train_final_model(
             best_params, cfg, seed, loaders, model_inputs, device,
             patience=patience, max_epochs=max_epochs
         )
         
-        # 7. 阶段三：评估
+        # 🔴 4. 执行阶段三 (这里是你报错的地方，现在已经修复了)
         print("\n" + "-"*10 + f" [种子 {seed}] 阶段三：在测试集上进行最终评估 " + "-"*10)
         metrics_dict, result_line = evaluate_final_model(
-            final_model, loaders['test'], model_inputs['task'], device
+            cfg, final_model, loaders['test'], model_inputs['task'], device
         )
         
         result_dict = {
@@ -550,7 +611,7 @@ def main(cfg: DictConfig):
     # --- 7. 最终总结 ---
     print("\n\n" + "="*30 + " 所有实验最终总结 " + "="*30)
     
-    output_file_path = '/home/debian/TIP/mymodel/result/fttrans.txt'
+    output_file_path = 'result/fttrans.txt'
     print(f"准备将结果写入到: {output_file_path}")
 
     output_dir = os.path.dirname(output_file_path)

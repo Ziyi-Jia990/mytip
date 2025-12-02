@@ -56,9 +56,12 @@ class ImagingAndTabularDataset(Dataset):
       data_path_tabular: str, field_lengths_tabular: str, eval_one_hot: bool,
       labels_path: str, img_size: int, live_loading: bool, train: bool, target: str,
       corruption_rate: float, data_base: str, missing_tabular: str=False, missing_strategy: str='value', missing_rate: float=0.0, augmentation_speedup: bool=False, 
-      algorithm_name: str=None) -> None:
+      algorithm_name: str=None,
+      task: str='classification'
+      ) -> None:
 
     # Imaging
+    self.task = task
     self.missing_tabular = missing_tabular
     self.data_imaging = torch.load(data_path_imaging)
     self.delete_segmentation = delete_segmentation
@@ -310,7 +313,11 @@ class ImagingAndTabularDataset(Dataset):
     if self.eval_one_hot:
       tab = self.one_hot_encode(tab).to(torch.float)
 
-    label = torch.tensor(self.labels[index], dtype=torch.long)
+    # label = torch.tensor(self.labels[index], dtype=torch.long)
+    if self.task == 'regression':
+        label = torch.tensor(self.labels[index], dtype=torch.float) # 回归用 float
+    else:
+        label = torch.tensor(self.labels[index], dtype=torch.long)  # 分类用 long
 
     if self.missing_tabular:
       missing_mask = torch.from_numpy(self.missing_mask_data[index])

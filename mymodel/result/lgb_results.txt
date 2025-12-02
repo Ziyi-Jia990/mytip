@@ -17,6 +17,191 @@ lr_finder_lrs:
 - 0.0001
 multitarget: null
 wandb_entity: siyiwind
+data_base: /mnt/hdd/jiazy/skin-cancer/features
+num_workers: 3
+algorithm_name: tabular
+strategy: tabular
+dataset_name: skin_cancer
+exp_name: NA
+wandb_project: LaaF
+sql_address: null
+missing_tabular: false
+missing_strategy: None
+missing_rate: None
+scheduler: anneal
+anneal_max_epochs: 200
+warmup_epochs: 10
+temperature: 0.1
+projection_dim: 128
+use_projection_head: true
+loss: clip
+view: augmented
+lambda_0: 0.5
+momentum: 0.99
+tr_loss: normal
+train_similarity_matrix: null
+val_similarity_matrix: null
+threshold: 0.9
+similarity_divisor: 2
+tabular_pretrain_checkpoint: null
+pretrained_tabular_strategy: frozen
+imaging_pretrain_checkpoint: null
+pretrained_imaging_strategy: trainable
+multiple_lr: false
+batch_size: 256
+lr: None
+lr_eval: None
+weight_decay: None
+weight_decay_eval: None
+val_check_interval: None
+check_val_every_n_epoch: None
+classifier_num_layers: None
+lr_classifier: None
+weight_decay_classifier: None
+online_mlp: true
+augmentation_rate: 0.95
+crop_scale_lower: 0.08
+augmentation_speedup: true
+corruption_rate: None
+one_hot: None
+eval_one_hot: None
+replace_special_rate: None
+replace_random_rate: None
+encoder_num_layers: None
+projector_num_layers: None
+init_strat: kaiming
+generate_embeddings: false
+keep_projector: false
+eval_train_augment_rate: 0.8
+eval_classifier: linear
+finetune_strategy: frozen
+finetune_ensemble: false
+vec2vec: false
+checkpoint_vec2vec: null
+checkpoint: null
+datatype: tabular
+eval_datatype: tabular
+seed: 2022
+max_epochs: 500
+log_images: false
+use_wandb: false
+limit_train_batches: 1.0
+limit_val_batches: 1.0
+limit_test_batches: 1.0
+enable_progress_bar: true
+offline: false
+evaluate: true
+test: false
+test_and_eval: true
+combine_train_and_val: false
+weighted_sampler: false
+classifier_freq: 5
+unit_test: false
+tabular_embedding_dim: 512
+embedding_dropout: 0.0
+tabular_transformer_num_layers: 4
+multimodal_transformer_num_layers: 4
+multimodal_embedding_dim: 512
+drop_rate: 0.0
+transform: null
+version: null
+input_size: null
+transform_train: null
+transform_val: null
+transform_test: null
+dataset_length: null
+resume_training: null
+wandb_id: null
+labels_train_short: null
+labels_val_short: null
+data_train_tabular_short: null
+data_val_tabular_short: null
+data_train_imaging_short: null
+data_val_imaging_short: null
+field_lengths_tabular_short: null
+data_train_eval_tabular_short: null
+labels_train_eval_tabular_short: null
+data_val_eval_tabular_short: null
+labels_val_eval_tabular_short: null
+data_test_eval_tabular_short: null
+labels_test_eval_tabular_short: null
+data_train_eval_imaging_short: null
+labels_train_eval_imaging_short: null
+data_val_eval_imaging_short: null
+labels_val_eval_imaging_short: null
+data_test_eval_imaging_short: null
+labels_test_eval_imaging_short: null
+train_similarity_matrix_short: null
+model: resnet50
+img_size: 128
+embedding_dim: 2048
+lr_imaging: 0.003
+lr_tabular: 0.0003
+target: skin_cancer
+task: classification
+num_classes: 6
+weights: null
+live_loading: true
+delete_segmentation: false
+balanced_accuracy: false
+eval_metric: acc
+data_orig: null
+low_data_splits:
+- ''
+num_cat: 19
+num_con: 3
+labels_train: /mnt/hdd/jiazy/skin-cancer/features/train_labels.pt
+labels_val: /mnt/hdd/jiazy/skin-cancer/features/val_labels.pt
+data_train_imaging: /mnt/hdd/jiazy/skin-cancer/features/train_paths.pt
+data_val_imaging: /mnt/hdd/jiazy/skin-cancer/features/val_paths.pt
+data_train_tabular: /mnt/hdd/jiazy/skin-cancer/features/train_features.csv
+data_val_tabular: /mnt/hdd/jiazy/skin-cancer/features/val_features.csv
+field_lengths_tabular: /mnt/hdd/jiazy/skin-cancer/features/tabular_lengths.pt
+data_train_eval_tabular: /mnt/hdd/jiazy/skin-cancer/features/train_features.csv
+labels_train_eval_tabular: /mnt/hdd/jiazy/skin-cancer/features/train_labels.pt
+data_val_eval_tabular: /mnt/hdd/jiazy/skin-cancer/features/val_features.csv
+labels_val_eval_tabular: /mnt/hdd/jiazy/skin-cancer/features/val_labels.pt
+data_test_eval_tabular: /mnt/hdd/jiazy/skin-cancer/features/test_features.csv
+labels_test_eval_tabular: /mnt/hdd/jiazy/skin-cancer/features/test_labels.pt
+data_train_eval_imaging: /mnt/hdd/jiazy/skin-cancer/features/train_paths.pt
+labels_train_eval_imaging: /mnt/hdd/jiazy/skin-cancer/features/train_labels.pt
+data_val_eval_imaging: /mnt/hdd/jiazy/skin-cancer/features/val_paths.pt
+labels_val_eval_imaging: /mnt/hdd/jiazy/skin-cancer/features/val_labels.pt
+data_test_eval_imaging: /mnt/hdd/jiazy/skin-cancer/features/test_paths.pt
+labels_test_eval_imaging: /mnt/hdd/jiazy/skin-cancer/features/test_labels.pt
+------------------------------
+
+seed:2022
+best_params: {'bagging_fraction': 0.8, 'feature_fraction': 0.8, 'learning_rate': 0.1, 'min_child_samples': 20, 'min_sum_hessian_in_leaf': 0.001, 'num_leaves': 127}
+acc:0.8391,auc:0.9621,macro-F1:0.7200
+
+seed:2023
+best_params: {'bagging_fraction': 0.9, 'feature_fraction': 0.8, 'learning_rate': 0.1, 'min_child_samples': 50, 'min_sum_hessian_in_leaf': 0.1, 'num_leaves': 31}
+acc:0.8391,auc:0.9643,macro-F1:0.7810
+
+seed:2024
+best_params: {'bagging_fraction': 0.8, 'feature_fraction': 0.8, 'learning_rate': 0.1, 'min_child_samples': 50, 'min_sum_hessian_in_leaf': 0.1, 'num_leaves': 31}
+acc:0.8391,auc:0.9636,macro-F1:0.7750
+
+--- 最终配置 ---
+comment: None
+pretrain: true
+run_eval: true
+seeds:
+- 2022
+- 2023
+- 2024
+- 2025
+- 2026
+lr_finder_lrs:
+- 0.03
+- 0.01
+- 0.003
+- 0.001
+- 0.0003
+- 0.0001
+multitarget: null
+wandb_entity: siyiwind
 data_base: /mnt/hdd/jiazy/cbis-ddsm-breast-cancer-image-dataset/features
 num_workers: 3
 algorithm_name: TIP
@@ -182,12 +367,4 @@ acc:0.5445,auc:0.8094,macro-F1:0.5262
 seed:2024
 best_params: {'bagging_fraction': 0.9, 'feature_fraction': 0.8, 'learning_rate': 0.1, 'min_child_samples': 20, 'min_sum_hessian_in_leaf': 0.001, 'num_leaves': 31}
 acc:0.5497,auc:0.8048,macro-F1:0.5310
-
-seed:2025
-best_params: {'bagging_fraction': 0.9, 'feature_fraction': 0.8, 'learning_rate': 0.1, 'min_child_samples': 100, 'min_sum_hessian_in_leaf': 0.001, 'num_leaves': 31}
-acc:0.5410,auc:0.8122,macro-F1:0.5237
-
-seed:2026
-best_params: {'bagging_fraction': 0.9, 'feature_fraction': 0.8, 'learning_rate': 0.1, 'min_child_samples': 100, 'min_sum_hessian_in_leaf': 0.001, 'num_leaves': 31}
-acc:0.5567,auc:0.8125,macro-F1:0.5374
 

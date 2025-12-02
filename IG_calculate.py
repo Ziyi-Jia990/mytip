@@ -569,10 +569,10 @@ def load_and_run_from_checkpoint(checkpoints:str):
         BASELINE_FILE_PATH  # <-- 传入文件路径
     )
     
-    # run_ablation_analysis(
-    #     adapter, test_loader_ablation, DEVICE,
-    #     img_baseline, tab_baseline
-    # )
+    run_ablation_analysis(
+        adapter, test_loader_ablation, DEVICE,
+        img_baseline, tab_baseline
+    )
     
     run_ig_analysis_on_dataset(
         adapter, test_loader_ig, DEVICE,
@@ -590,7 +590,7 @@ if __name__ == "__main__":
         # "/mnt/hdd/jiazy/checkpoints/dvm/Concat/checkpoint_best_acc.ckpt",
         # '/mnt/hdd/jiazy/checkpoints/dvm/DAFT/checkpoint_best_acc.ckpt',
         # '/mnt/hdd/jiazy/checkpoints/dvm/Max/checkpoint_best_acc.ckpt'
-        '/mnt/hdd/jiazy/checkpoints/dvm/TIP/checkpoint_best_acc.ckpt'
+        '/home/debian/TIP/results/runs/eval/breast_lr_1e-3_breast_cancer_1123_1216/checkpoint_best_acc.ckpt'
     ]
     for checkpoint in checkpoints_path:
         load_and_run_from_checkpoint(checkpoint)

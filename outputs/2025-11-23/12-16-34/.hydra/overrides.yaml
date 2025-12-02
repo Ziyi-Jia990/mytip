@@ -1,0 +1,6 @@
+- pretrain=False
+- evaluate=True
+- checkpoint=/home/debian/TIP/results/runs/multimodal/pretrain_breast_cancer_1122_0125/checkpoint_last_epoch_499.ckpt
+- exp_name=breast_lr_1e-3
+- max_epochs=500
+- lr_eval=1e-3

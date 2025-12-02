@@ -8,6 +8,7 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 from torch.optim import Optimizer
 from torchmetrics.functional.classification import binary_auroc, multiclass_auroc, binary_accuracy, multiclass_accuracy
+from torchmetrics.functional import mean_squared_error, mean_absolute_error, r2_score
 
 from pl_bolts.models.self_supervised.evaluator import SSLEvaluator
 
@@ -40,6 +41,7 @@ class SSLOnlineEvaluator(Callback):  # pragma: no cover
         swav: bool = False,
         multimodal: bool = False,
         strategy: str = None,
+        task: str = 'classification'
     ):
         """
         Args:
@@ -61,6 +63,7 @@ class SSLOnlineEvaluator(Callback):  # pragma: no cover
         self.swav = swav
         self.multimodal = multimodal
         self.strategy = strategy
+        self.task = task # <--- [新增] 保存任务
 
         self._recovered_callback_state: Optional[Dict[str, Any]] = None
 
@@ -69,7 +72,6 @@ class SSLOnlineEvaluator(Callback):  # pragma: no cover
             self.num_classes = trainer.datamodule.num_classes
 
     def on_fit_start(self, trainer: Trainer, pl_module: LightningModule) -> None:
-        # must move to device after setup, as during setup, pl_module is still on cpu
         self.online_evaluator = SSLEvaluator(
             n_input=self.z_dim,
             n_classes=self.num_classes,
@@ -77,32 +79,11 @@ class SSLOnlineEvaluator(Callback):  # pragma: no cover
             n_hidden=self.hidden_dim,
         ).to(pl_module.device)
 
-        # switch fo PL compatibility reasons
-        # accel = (
-        #     trainer.accelerator_connector
-        #     if hasattr(trainer, "accelerator_connector")
-        #     else trainer._accelerator_connector
-        # )
-        # if accel.is_distributed:
-        #     if accel.use_ddp:
-        #         from torch.nn.parallel import DistributedDataParallel as DDP
-
-        #         self.online_evaluator = DDP(self.online_evaluator, device_ids=[pl_module.device])
-        #     elif accel.use_dp:
-        #         from torch.nn.parallel import DataParallel as DP
-
-        #         self.online_evaluator = DP(self.online_evaluator, device_ids=[pl_module.device])
-        #     else:
-        #         rank_zero_warn(
-        #             "Does not support this type of distributed accelerator. The online evaluator will not sync."
-        #         )
-
         accel = (
             trainer.accelerator_connector
             if hasattr(trainer, "accelerator_connector")
             else trainer._accelerator_connector
         )
-        # print(trainer.accelerator)
         if accel.is_distributed:
             if accel._strategy_flag in ["ddp", "ddp2", "ddp_spawn"]:
                 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -116,22 +97,6 @@ class SSLOnlineEvaluator(Callback):  # pragma: no cover
                 rank_zero_warn(
                     "Does not support this type of distributed accelerator. The online evaluator will not sync."
                 )
-
-    #    if trainer.is_global_zero:
-    #         self.optimizer = torch.optim.Adam(self.online_evaluator.parameters(), lr=1e-4)
-
-    #     if trainer.use_ddp2:
-    #         from torch.nn.parallel import DistributedDataParallel as DDP
-
-    #         self.online_evaluator = DDP(self.online_evaluator, device_ids=[trainer.local_rank], broadcast_buffers=False)
-    #     elif trainer.use_dp:
-    #         from torch.nn.parallel import DataParallel as DP
-
-    #         self.online_evaluator = DP(self.online_evaluator, device_ids=[trainer.root_device])
-    #     else:
-    #         rank_zero_warn(
-    #             "Does not support this type of distributed accelerator. The online evaluator will not sync."
-    #         )
 
         self.optimizer = torch.optim.Adam(self.online_evaluator.parameters(), lr=1e-4)
 
@@ -155,7 +120,6 @@ class SSLOnlineEvaluator(Callback):  # pragma: no cover
             _, x, y = batch
         
         if self.strategy == 'comparison':
-            # last input is for online eval
             x = x.to(device)
             y = y.to(device)
             return x, y, None
@@ -179,17 +143,31 @@ class SSLOnlineEvaluator(Callback):  # pragma: no cover
 
         # forward pass
         mlp_logits = self.online_evaluator(representations)  # type: ignore[operator]
-        mlp_loss = F.cross_entropy(mlp_logits, y)
-
-        mlp_logits_sm = mlp_logits.softmax(dim=1)
-        if self.num_classes == 2:
-          auc = binary_auroc(mlp_logits_sm[:, 1], y)
-          acc = binary_accuracy(mlp_logits_sm[:, 1], y)
+        
+        # --- [修改] 根据任务类型区分 Loss 和 Metrics ---
+        if self.task == 'regression':
+            # 回归任务：Target 形状通常是 (B,)，Logits 是 (B, 1)，需要 squeeze
+            mlp_logits = mlp_logits.squeeze()
+            mlp_loss = F.mse_loss(mlp_logits, y)
+            
+            # 计算回归指标
+            rmse = mean_squared_error(mlp_logits, y, squared=False)
+            mae = mean_absolute_error(mlp_logits, y)
+            r2 = r2_score(mlp_logits, y)
+            
+            return rmse, r2, mae, mlp_loss
         else:
-          auc = multiclass_auroc(mlp_logits_sm, y, self.num_classes)
-          acc = multiclass_accuracy(mlp_logits_sm, y, self.num_classes)
+            # 分类任务（原有逻辑）
+            mlp_loss = F.cross_entropy(mlp_logits, y)
+            mlp_logits_sm = mlp_logits.softmax(dim=1)
+            if self.num_classes == 2:
+                auc = binary_auroc(mlp_logits_sm[:, 1], y)
+                acc = binary_accuracy(mlp_logits_sm[:, 1], y)
+            else:
+                auc = multiclass_auroc(mlp_logits_sm, y, self.num_classes)
+                acc = multiclass_accuracy(mlp_logits_sm, y, self.num_classes)
 
-        return acc, auc, mlp_loss
+            return acc, auc, None, mlp_loss # 返回一个 None 占位，保持解包数量一致（或者如下分开处理）
 
     def on_train_batch_end(
         self,
@@ -199,16 +177,30 @@ class SSLOnlineEvaluator(Callback):  # pragma: no cover
         batch: Sequence,
         batch_idx: int
     ) -> None:
-        train_acc, train_auc, mlp_loss = self.shared_step(pl_module, batch)
+        
+        if self.task == 'regression':
+            train_rmse, train_r2, train_mae, mlp_loss = self.shared_step(pl_module, batch)
+            
+            # update finetune weights
+            mlp_loss.backward()
+            self.optimizer.step()
+            self.optimizer.zero_grad()
 
-        # update finetune weights
-        mlp_loss.backward()
-        self.optimizer.step()
-        self.optimizer.zero_grad()
+            pl_module.log("classifier.train.loss", mlp_loss, on_step=False, on_epoch=True, sync_dist=True)
+            pl_module.log("classifier.train.rmse", train_rmse, on_step=False, on_epoch=True, sync_dist=True)
+            pl_module.log("classifier.train.mae", train_mae, on_step=False, on_epoch=True, sync_dist=True)
+            pl_module.log("classifier.train.r2", train_r2, on_step=False, on_epoch=True, sync_dist=True)
+        else:
+            train_acc, train_auc, _, mlp_loss = self.shared_step(pl_module, batch)
 
-        pl_module.log("classifier.train.loss", mlp_loss, on_step=False, on_epoch=True, sync_dist=True)
-        pl_module.log("classifier.train.auc", train_auc, on_step=False, on_epoch=True, sync_dist=True)
-        pl_module.log("classifier.train.acc", train_acc, on_step=False, on_epoch=True, sync_dist=True)
+            # update finetune weights
+            mlp_loss.backward()
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+
+            pl_module.log("classifier.train.loss", mlp_loss, on_step=False, on_epoch=True, sync_dist=True)
+            pl_module.log("classifier.train.auc", train_auc, on_step=False, on_epoch=True, sync_dist=True)
+            pl_module.log("classifier.train.acc", train_acc, on_step=False, on_epoch=True, sync_dist=True)
 
 
     def on_validation_batch_end(
@@ -220,10 +212,18 @@ class SSLOnlineEvaluator(Callback):  # pragma: no cover
         batch_idx: int,
         dataloader_idx: int,
     ) -> None:
-        val_acc, val_auc, mlp_loss = self.shared_step(pl_module, batch)
-        pl_module.log("classifier.val.loss", mlp_loss, on_step=False, on_epoch=True, sync_dist=True)
-        pl_module.log("classifier.val.auc", val_auc, on_step=False, on_epoch=True, sync_dist=True)
-        pl_module.log("classifier.val.acc", val_acc, on_step=False, on_epoch=True, sync_dist=True)
+        
+        if self.task == 'regression':
+            val_rmse, val_r2, val_mae, mlp_loss = self.shared_step(pl_module, batch)
+            pl_module.log("classifier.val.loss", mlp_loss, on_step=False, on_epoch=True, sync_dist=True)
+            pl_module.log("classifier.val.rmse", val_rmse, on_step=False, on_epoch=True, sync_dist=True)
+            pl_module.log("classifier.val.mae", val_mae, on_step=False, on_epoch=True, sync_dist=True)
+            pl_module.log("classifier.val.r2", val_r2, on_step=False, on_epoch=True, sync_dist=True)
+        else:
+            val_acc, val_auc, _, mlp_loss = self.shared_step(pl_module, batch)
+            pl_module.log("classifier.val.loss", mlp_loss, on_step=False, on_epoch=True, sync_dist=True)
+            pl_module.log("classifier.val.auc", val_auc, on_step=False, on_epoch=True, sync_dist=True)
+            pl_module.log("classifier.val.acc", val_acc, on_step=False, on_epoch=True, sync_dist=True)
 
     def on_save_checkpoint(self, trainer: Trainer, pl_module: LightningModule, checkpoint: Dict[str, Any]) -> dict:
         return {"state_dict": self.online_evaluator.state_dict(), "optimizer_state": self.optimizer.state_dict()}
@@ -234,13 +234,7 @@ class SSLOnlineEvaluator(Callback):  # pragma: no cover
 
 @contextmanager
 def set_training(module: nn.Module, mode: bool):
-    """Context manager to set training mode.
-
-    When exit, recover the original training mode.
-    Args:
-        module: module to set training mode
-        mode: whether to set training mode (True) or evaluation mode (False).
-    """
+    """Context manager to set training mode."""
     original_mode = module.training
 
     try:

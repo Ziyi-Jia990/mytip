@@ -44,9 +44,12 @@ class ContrastiveReconstructImagingAndTabularDataset(Dataset):
       self, 
       data_path_imaging: str, delete_segmentation: bool, augmentation: transforms.Compose, augmentation_rate: float, 
       data_path_tabular: str, corruption_rate: float, replace_random_rate: float, replace_special_rate: float, field_lengths_tabular: str, one_hot_tabular: bool,
-      labels_path: str, img_size: int, live_loading: bool, augmentation_speedup: bool=False, target: str='none') -> None:
+      labels_path: str, img_size: int, live_loading: bool, augmentation_speedup: bool=False, target: str='none',
+      task: str='classification' # <--- [新增] 任务类型参数
+      ) -> None:
             
     # Imaging
+    self.task = task # <--- [新增] 保存任务类型
     self.data_imaging = torch.load(data_path_imaging)
     self.transform = augmentation
     self.delete_segmentation = delete_segmentation
@@ -349,7 +352,11 @@ class ContrastiveReconstructImagingAndTabularDataset(Dataset):
         tabular_views = [self.one_hot_encode(tv) for tv in tabular_views]
 
       # ---- 4) label ----
-      label = self.labels[index].clone().detach().to(torch.long)
+      # label = self.labels[index].clone().detach().to(torch.long)
+      if self.task == 'regression':
+          label = self.labels[index].clone().detach().to(torch.float) # 回归必须是 float
+      else:
+          label = self.labels[index].clone().detach().to(torch.long)  # 分类通常是 long
 
       # ---- 5) unaugmented_tabular 给在线评估用，同样要重排 ----
       unaugmented_tabular = torch.tensor(subj_np, dtype=torch.float)

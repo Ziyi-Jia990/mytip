@@ -40,9 +40,12 @@ class ContrastiveImagingAndTabularDataset(Dataset):
       self, 
       data_path_imaging: str, delete_segmentation: bool, augmentation: transforms.Compose, augmentation_rate: float, 
       data_path_tabular: str, corruption_rate: float, field_lengths_tabular: str, one_hot_tabular: bool,
-      labels_path: str, img_size: int, live_loading: bool, augmentation_speedup: bool=False, target: str='none') -> None:
+      labels_path: str, img_size: int, live_loading: bool, augmentation_speedup: bool=False, target: str='none',
+      task: str='classification' # <--- [新增] 任务参数
+      ) -> None:
             
     # Imaging
+    self.task = task # <--- [新增] 保存任务类型
     self.data_imaging = torch.load(data_path_imaging)
     self.transform = augmentation
     self.delete_segmentation = delete_segmentation
@@ -222,7 +225,12 @@ class ContrastiveImagingAndTabularDataset(Dataset):
     if self.one_hot_tabular:
       tabular_views = [self.one_hot_encode(tv) for tv in tabular_views]
     # label = torch.tensor(self.labels[index], dtype=torch.long)
-    label = self.labels[index].clone().detach().to(torch.long)
+    # --- [修改] 根据任务类型转换 Label ---
+    if self.task == 'regression':
+        label = self.labels[index].clone().detach().to(torch.float)
+    else:
+        label = self.labels[index].clone().detach().to(torch.long)
+        
     return imaging_views, tabular_views, label, unaugmented_image
 
   def __len__(self) -> int:
