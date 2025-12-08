@@ -10,12 +10,14 @@ import os
 from argparse import Namespace
 from collections import OrderedDict
 from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import pytorch_lightning as pl
 
 # --- 导入您的模型和 Dataset ---
 from datasets.ImagingAndTabularDataset import ImagingAndTabularDataset
 from models.Tip_utils.pieces import DotDict
 from models.Evaluator import Evaluator
+from models.Evaluator_regression import Evaluator_Regression
 from models.MultimodalModel import MultimodalModel
 from models.Tip_utils.Tip_downstream import TIPBackbone
 from models.Tip_utils.Tip_downstream_ensemble import TIPBackboneEnsemble
@@ -197,9 +199,9 @@ def compute_mean_embeddings(adapter: ModelAdapter,
             
             # --- [调试] ---
             # (与您之前的调试逻辑相同，在少量批次后停止)
-            if i >= 10: # (例如，计算 11 个批次的均值)
-                print("\n--- 调试: 已达到基线计算的批次限制 ---")
-                break 
+            # if i >= 10: # (例如，计算 11 个批次的均值)
+            #     print("\n--- 调试: 已达到基线计算的批次限制 ---")
+            #     break 
                 
     # --- [关键修复在这里] ---
     
@@ -234,7 +236,8 @@ def evaluate_model_with_ablation(adapter: ModelAdapter,
                                  img_embed_baseline: torch.Tensor,
                                  tab_embed_baseline: torch.Tensor,
                                  ablate_image: bool = False,
-                                 ablate_tabular: bool = False):
+                                 ablate_tabular: bool = False,
+                                 task: str='classification'):
     """使用模态消融评估模型性能。"""
     adapter.model.to(device)
     adapter.model.eval()
@@ -261,15 +264,28 @@ def evaluate_model_with_ablation(adapter: ModelAdapter,
                     tab_embed = tab_embed_baseline.expand_as(tab_embed)
 
             logits = adapter.fusion_classifier_func(img_embed, tab_embed)
-            preds = torch.argmax(logits, dim=1)
+            if task == 'regression':
+                preds = logits.squeeze()
+            elif task == 'classification':
+                preds = torch.argmax(logits, dim=1)
             all_labels.append(labels.cpu())
             all_preds.append(preds.cpu())
 
     all_labels = torch.cat(all_labels).numpy()
     all_preds = torch.cat(all_preds).numpy()
-    accuracy = accuracy_score(all_labels, all_preds)
-    f1_macro = f1_score(all_labels, all_preds, average='macro', zero_division=0)
-    return {'accuracy': accuracy, 'f1_macro': f1_macro}
+    if task == 'classification':
+        print("Classification")
+        accuracy = accuracy_score(all_labels, all_preds)
+        f1_macro = f1_score(all_labels, all_preds, average='macro', zero_division=0)
+        return {'accuracy': accuracy, 'f1_macro': f1_macro}
+    else:
+        print("Regression")
+        mse = mean_squared_error(all_labels, all_preds)
+        rmse = np.sqrt(mse)
+        mae = mean_absolute_error(all_labels, all_preds)
+        r2 = r2_score(all_labels, all_preds)
+        
+        return {'rmse': rmse, 'mae': mae, 'r2': r2}
 
 
 
@@ -277,41 +293,76 @@ def run_ablation_analysis(adapter: ModelAdapter,
                           data_loader: DataLoader, 
                           device: torch.device,
                           img_embed_baseline: torch.Tensor,
-                          tab_embed_baseline: torch.Tensor):
+                          tab_embed_baseline: torch.Tensor,
+                          task: str='classification'
+                          ):
     """运行完整的消融研究。"""
     print("\n--- [ANALYSIS 1/2] Running Modality Ablation ---")
     
     print("Evaluating: Full Model (Baseline)")
     metrics_full = evaluate_model_with_ablation(
-        adapter, data_loader, device, img_embed_baseline, tab_embed_baseline
+        adapter, data_loader, device, img_embed_baseline, tab_embed_baseline, task=task 
     )
     print("Evaluating: Image-Only (Tabular Ablated)")
     metrics_img_only = evaluate_model_with_ablation(
-        adapter, data_loader, device, img_embed_baseline, tab_embed_baseline, ablate_tabular=True
+        adapter, data_loader, device, img_embed_baseline, tab_embed_baseline, ablate_tabular=True, task=task
     )
     print("Evaluating: Tabular-Only (Image Ablated)")
     metrics_tab_only = evaluate_model_with_ablation(
-        adapter, data_loader, device, img_embed_baseline, tab_embed_baseline, ablate_image=True
+        adapter, data_loader, device, img_embed_baseline, tab_embed_baseline, ablate_image=True, task=task
     )
+    if task == 'classification':
+        base_f1 = metrics_full['f1_macro']
+        f1_loss_tab_ablated = base_f1 - metrics_img_only['f1_macro']
+        f1_loss_img_ablated = base_f1 - metrics_tab_only['f1_macro']
+        total_loss = f1_loss_tab_ablated + f1_loss_img_ablated + 1e-10
+        img_contrib_pct = (f1_loss_img_ablated / total_loss) * 100.0
+        tab_contrib_pct = (f1_loss_tab_ablated / total_loss) * 100.0
+        print("\n--- Ablation Analysis Results (Global Contribution) ---")
+        print(f"{'Experiment':<20} | {'Accuracy':<10} | {'Macro F1':<10} | {'Δ (F1)':<10}")
+        print("-" * 56)
+        print(f"{'Full Model':<20} | {metrics_full['accuracy']:<10.4f} | {metrics_full['f1_macro']:<10.4f} | {'-':<10}")
+        print(f"{'Image-Only':<20} | {metrics_img_only['accuracy']:<10.4f} | {metrics_img_only['f1_macro']:<10.4f} | {-f1_loss_tab_ablated:<10.4f}")
+        print(f"{'Tabular-Only':<20} | {metrics_tab_only['accuracy']:<10.4f} | {metrics_tab_only['f1_macro']:<10.4f} | {-f1_loss_img_ablated:<10.4f}")
+        print("-" * 56)
+        print(f"Global Contribution (F1-based):")
+        print(f"  > Image Modality: {img_contrib_pct:.2f}%")
+        print(f"  > Tabular Modality: {tab_contrib_pct:.2f}%")
+        print("-" * 56)
+    else:
+        base_mae = metrics_full['mae']
+    
+        # 计算误差增量 (Error Increase)
+        # 正值 = 移除后误差变大 = 模态是有益的 (Helpful)
+        # 负值 = 移除后误差变小 = 模态是有害的 (Harmful)
+        mae_increase_no_tab = metrics_img_only['mae'] - base_mae
+        mae_increase_no_img = metrics_tab_only['mae'] - base_mae
+        
+        loss_tab = mae_increase_no_tab  # 不再取 max(0)
+        loss_img = mae_increase_no_img  # 不再取 max(0)
+        
+        # --- [关键逻辑: 使用绝对值之和作为分母] ---
+        # 这确保了分母总是正数，从而保留分子(贡献)的正负号意义。
+        # 这样:
+        #   +10 / 30 = +33% (有益)
+        #   -20 / 30 = -66% (有害)
+        total_magnitude = abs(loss_tab) + abs(loss_img) + 1e-9
+        
+        img_contrib_pct = (loss_img / total_magnitude) * 100.0
+        tab_contrib_pct = (loss_tab / total_magnitude) * 100.0
 
-    base_f1 = metrics_full['f1_macro']
-    f1_loss_tab_ablated = base_f1 - metrics_img_only['f1_macro']
-    f1_loss_img_ablated = base_f1 - metrics_tab_only['f1_macro']
-    total_loss = f1_loss_tab_ablated + f1_loss_img_ablated + 1e-10
-    img_contrib_pct = (f1_loss_img_ablated / total_loss) * 100.0
-    tab_contrib_pct = (f1_loss_tab_ablated / total_loss) * 100.0
-
-    print("\n--- Ablation Analysis Results (Global Contribution) ---")
-    print(f"{'Experiment':<20} | {'Accuracy':<10} | {'Macro F1':<10} | {'Δ (F1)':<10}")
-    print("-" * 56)
-    print(f"{'Full Model':<20} | {metrics_full['accuracy']:<10.4f} | {metrics_full['f1_macro']:<10.4f} | {'-':<10}")
-    print(f"{'Image-Only':<20} | {metrics_img_only['accuracy']:<10.4f} | {metrics_img_only['f1_macro']:<10.4f} | {-f1_loss_tab_ablated:<10.4f}")
-    print(f"{'Tabular-Only':<20} | {metrics_tab_only['accuracy']:<10.4f} | {metrics_tab_only['f1_macro']:<10.4f} | {-f1_loss_img_ablated:<10.4f}")
-    print("-" * 56)
-    print(f"Global Contribution (F1-based):")
-    print(f"  > Image Modality: {img_contrib_pct:.2f}%")
-    print(f"  > Tabular Modality: {tab_contrib_pct:.2f}%")
-    print("-" * 56)
+        print("\n=== Ablation Results (MAE - Lower is Better) ===")
+        print(f"{'Experiment':<20} | {'MAE':<10} | {'RMSE':<10} | {'MAE Increase'}")
+        print("-" * 60)
+        print(f"{'Full Model':<20} | {metrics_full['mae']:<10.4f} | {metrics_full['rmse']:<10.4f} | {'-':<10}")
+        print(f"{'Image-Only':<20} | {metrics_img_only['mae']:<10.4f} | {metrics_img_only['rmse']:<10.4f} | {mae_increase_no_tab:+.4f}")
+        print(f"{'Tabular-Only':<20} | {metrics_tab_only['mae']:<10.4f} | {metrics_tab_only['rmse']:<10.4f} | {mae_increase_no_img:+.4f}")
+        print("-" * 60)
+        print(f"Global Contribution (Allowing Negative):")
+        print(f"  > Image:   {img_contrib_pct:+.2f}%")
+        print(f"  > Tabular: {tab_contrib_pct:+.2f}%")
+        print("============================================\n")
+    
 
 def calculate_attribution_magnitude(attributions_tensor):
     return torch.sum(torch.abs(attributions_tensor))
@@ -340,7 +391,8 @@ def get_ig_contribution(adapter: ModelAdapter,
                         img_embed_baseline: torch.Tensor, 
                         tab_embed_baseline: torch.Tensor, 
                         target_class: int,
-                        m_steps=100):
+                        m_steps=100,
+                        task: str='classification'):
     """计算单个样本的 IG。"""
     ig = IntegratedGradients(adapter.fusion_classifier_func)
     adapter.model.eval()
@@ -358,11 +410,20 @@ def get_ig_contribution(adapter: ModelAdapter,
         tab_baseline_final = tab_embed_baseline
     baselines_tuple = (img_embed_baseline, tab_baseline_final)
 
-    attributions_tuple = ig.attribute(
-        inputs=inputs_tuple, baselines=baselines_tuple,
-        target=target_class, n_steps=m_steps,
-        return_convergence_delta=False
-    )
+    if task == 'classification':
+        attributions_tuple = ig.attribute(
+            inputs=inputs_tuple, baselines=baselines_tuple,
+            target=target_class, n_steps=m_steps,
+            return_convergence_delta=False
+        )
+    else:
+        attributions_tuple = ig.attribute(
+            inputs=inputs_tuple,
+            baselines=baselines_tuple,
+            target=None, # 回归任务输出是标量，不需要 target index
+            n_steps=m_steps,
+            return_convergence_delta=False
+        )
     img_attributions = attributions_tuple[0].squeeze(0)
     tab_attributions = attributions_tuple[1].squeeze(0)
     img_score_l1 = calculate_attribution_magnitude(img_attributions)
@@ -374,7 +435,8 @@ def run_ig_analysis_on_dataset(adapter: ModelAdapter,
                                data_loader: DataLoader, 
                                device: torch.device,
                                img_embed_baseline: torch.Tensor,
-                               tab_embed_baseline: torch.Tensor):
+                               tab_embed_baseline: torch.Tensor,
+                               task: str='classification'):
     """运行完整的 IG 分析。"""
     print("\n--- [ANALYSIS 2/2] Running Integrated Gradients ---")
     adapter.model.to(device)
@@ -397,7 +459,8 @@ def run_ig_analysis_on_dataset(adapter: ModelAdapter,
         img_pct, tab_pct = get_ig_contribution(
             adapter, img_sample, tab_sample,
             img_embed_baseline, tab_embed_baseline,
-            target_class, m_steps=100
+            target_class, m_steps=100,
+            task=task
         )
         all_results.append((img_pct, tab_pct))
 
@@ -450,7 +513,7 @@ def load_analysis_datasets(cfg: Namespace):
     # 共同参数
     shared_args = {
         'delete_segmentation': cfg.delete_segmentation,
-        'eval_one_hot': False, 'train': False, 'target': cfg.target,
+        'eval_one_hot': cfg.eval_one_hot, 'train': False, 'target': cfg.target,
         'corruption_rate': 0.0, 'data_base': cfg.data_base,
         'missing_tabular': False, 'missing_strategy': 'None',
         'missing_rate': 0.0,
@@ -532,13 +595,17 @@ def load_and_run_from_checkpoint(checkpoints:str):
     # hparams.checkpoint = None      # 避免 FileNotFoundError
     # hparams.share_weights = False  # 避免 AttributeError
     hparams.missing_tabular = False
-    hparams.eval_one_hot = False
+    # hparams.eval_one_hot = False
 
     # --- 3. 实例化 Evaluator (并自动实例化模型) ---
     # 我们使用 'hparams' 手动实例化 Evaluator，
     # 而不是使用 .load_from_checkpoint
     print("Instantiating Evaluator (this will load the model)...")
-    eval_module = Evaluator(hparams).to(DEVICE)
+    print(f"Task:{hparams.task}")
+    if hparams.task=='classification':
+        eval_module = Evaluator(hparams).to(DEVICE)
+    else:
+        eval_module = Evaluator_Regression(hparams).to(DEVICE)
     
     # --- 4. 手动加载 State Dict ---
     # (因为我们绕过了 .load_from_checkpoint)
@@ -571,12 +638,12 @@ def load_and_run_from_checkpoint(checkpoints:str):
     
     run_ablation_analysis(
         adapter, test_loader_ablation, DEVICE,
-        img_baseline, tab_baseline
+        img_baseline, tab_baseline, task=hparams.task
     )
     
     run_ig_analysis_on_dataset(
         adapter, test_loader_ig, DEVICE,
-        img_baseline, tab_baseline
+        img_baseline, tab_baseline, task=hparams.task
     )
     
     print("\n\n--- Full Analysis Complete ---")
@@ -587,10 +654,10 @@ if __name__ == "__main__":
     print("\n--- 脚本已准备就绪 ---")
 
     checkpoints_path = [
-        # "/mnt/hdd/jiazy/checkpoints/dvm/Concat/checkpoint_best_acc.ckpt",
-        # '/mnt/hdd/jiazy/checkpoints/dvm/DAFT/checkpoint_best_acc.ckpt',
-        # '/mnt/hdd/jiazy/checkpoints/dvm/Max/checkpoint_best_acc.ckpt'
-        '/home/debian/TIP/results/runs/eval/breast_lr_1e-3_breast_cancer_1123_1216/checkpoint_best_acc.ckpt'
+        '/home/jiazy/mytip/results/runs/eval/anime_MAX_lr_1e-4_anime_1204_1729/checkpoint_best_mae.ckpt',
+        '/home/jiazy/mytip/results/runs/eval/anime_Concat_lr_1e-3_anime_1204_1756/checkpoint_best_mae.ckpt',
+        '/home/jiazy/mytip/results/runs/eval/anime_DAFT_lr_1e-4_anime_1204_1833/checkpoint_best_mae.ckpt',
+        '/home/jiazy/mytip/results/runs/eval/anime_TIP_lr_1e-3_anime_1206_0254/checkpoint_best_mae.ckpt'
     ]
     for checkpoint in checkpoints_path:
         load_and_run_from_checkpoint(checkpoint)

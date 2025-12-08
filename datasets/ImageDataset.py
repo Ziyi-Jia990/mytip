@@ -75,7 +75,7 @@ class ImageDataset(Dataset):
         #         A.Resize(height=img_size, width=img_size),
         #         ToTensorV2() 
         #     ])
-        elif self.dataset_name.lower() in ['celeba', 'adoption', 'pawpularity']:
+        elif self.dataset_name.lower() in ['celeba', 'adoption', 'pawpularity', 'anime']:
             print(f'Using standard (0-255 -> 0-1) transform for CelebA (Albumentations)')
             # 修正：self.default_transform -> self.transform_val
             self.transform_val = A.Compose([

@@ -1,0 +1,6 @@
+- exp_name=pawpularity_DAFT_2024
+- max_epochs=500
+- seed=2024
+- lr_eval=1e-5
+- lr=1e-5
+- use_wandb=False

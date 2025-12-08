@@ -1,0 +1,6 @@
+- exp_name=pawpularity_MUL_2023
+- max_epochs=500
+- seed=2023
+- lr_eval=1e-4
+- lr=1e-4
+- use_wandb=False

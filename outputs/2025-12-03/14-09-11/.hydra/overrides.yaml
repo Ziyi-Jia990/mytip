@@ -1,0 +1,7 @@
+- pretrain=False
+- evaluate=True
+- checkpoint=/home/jiazy/mytip/results/runs/multimodal/pawpularity_2022_MMCL_pawpularity_1203_0714/checkpoint_last_epoch_499.ckpt
+- exp_name=pawpularity_MMCL_lr_1e-5
+- max_epochs=500
+- lr_eval=1e-5
+- use_wandb=False

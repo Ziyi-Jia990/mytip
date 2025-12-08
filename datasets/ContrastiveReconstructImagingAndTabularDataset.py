@@ -78,7 +78,7 @@ class ContrastiveReconstructImagingAndTabularDataset(Dataset):
           A.Lambda(name='convert2tensor', image=convert_to_ts_01)
         ])
         print(f'Using cardiac transform for default transform in ContrastiveReconstructImagingAndTabularDataset')   
-      elif self.dataset_name in ['celeba', 'adoption', 'pawpularity']:
+      elif self.dataset_name in ['celeba', 'adoption', 'pawpularity', 'anime']:
           print(f'Using standard (0-255 -> 0-1) transform for CelebA (Albumentations)')
           self.default_transform = A.Compose([
               A.Resize(height=img_size, width=img_size),

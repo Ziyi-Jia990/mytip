@@ -2,7 +2,8 @@ import pandas as pd
 import numpy as np
 import lightgbm as lgb
 from sklearn.model_selection import GridSearchCV, StratifiedKFold, KFold
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, mean_squared_error
+# --- 修改点 1: 引入 mean_absolute_error 和 r2_score ---
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, mean_squared_error, mean_absolute_error, r2_score
 import sys
 import torch
 import os
@@ -184,8 +185,12 @@ def run_experiment(X_train, y_train, X_test, y_test, problem_type, objective, nu
         result_line = f"acc:{acc:.4f},auc:{auc:.4f},macro-F1:{macro_f1:.4f}"
     
     elif problem_type == 'regression':
+        # --- 修改点 2: 增加 MAE 和 R2 的计算 ---
         rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-        result_line = f"rmse:{rmse:.4f}"
+        mae = mean_absolute_error(y_test, y_pred)
+        r2 = r2_score(y_test, y_pred)
+        
+        result_line = f"rmse:{rmse:.4f},mae:{mae:.4f},r2:{r2:.4f}"
 
     print("评估结果:")
     print(result_line)
@@ -244,6 +249,9 @@ def main(cfg: DictConfig):
     
     # 3. 打开文件准备写入结果
     print(f"\n准备将结果写入到文件: {output_filename}")
+    # 确保目录存在
+    os.makedirs(os.path.dirname(output_filename), exist_ok=True)
+    
     with open(output_filename, 'a') as f:
         f.write("--- 最终配置 ---\n")
         f.write(OmegaConf.to_yaml(cfg))

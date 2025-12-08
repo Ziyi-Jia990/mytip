@@ -1,0 +1,8 @@
+- pretrain=False
+- evaluate=True
+- checkpoint=/home/jiazy/mytip/results/runs/multimodal/pawpularity_2024_MMCL_pawpularity_1203_0924/checkpoint_last_epoch_499.ckpt
+- exp_name=pawpularity_2024_MMCL
+- max_epochs=500
+- lr_eval=1e-3
+- use_wandb=False
+- seed=2024

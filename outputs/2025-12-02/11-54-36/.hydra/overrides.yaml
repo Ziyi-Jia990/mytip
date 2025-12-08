@@ -1,0 +1,5 @@
+- exp_name=pawpularity_MAX_lr_1e-5
+- max_epochs=500
+- lr_eval=1e-5
+- lr=1e-5
+- use_wandb=False

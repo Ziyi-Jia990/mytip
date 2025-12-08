@@ -3,14 +3,15 @@
 # --- 1. 配置 ---
 
 # 您的候选学习率列表 (用空格隔开)
-# LR_LIST="1e-3 1e-4"
-LR_LIST="1e-3"
+LR_LIST="1e-3 1e-4 1e-5"
+# LR_LIST="1e-3"
 
 # 您的预训练 checkpoint 路径
-PRETRAINED_CKPT="/home/debian/TIP/results/runs/multimodal/pretrain_breast_cancer_1122_0125/checkpoint_last_epoch_499.ckpt"
+# PRETRAINED_CKPT="/home/jiazy/mytip/results/runs/multimodal/anime_2022_MMCL_anime_1204_1154/checkpoint_last_epoch_499.ckpt"
+PRETRAINED_CKPT='/home/jiazy/mytip/results/runs/multimodal/anime_2022_TIP_anime_1203_1445/checkpoint_last_epoch_499.ckpt'
 
 # 您的 Hydra 配置文件名
-CONFIG_NAME="config_breast_TIP.yaml"
+CONFIG_NAME="config_anime_TIP.yaml"
 
 # 微调的最大 Epochs 数 (早停法会自动处理)
 MAX_EPOCHS_FINETUNE=500
@@ -24,7 +25,7 @@ for LR in $LR_LIST
 do
     # 为这次运行创建一个唯一的实验名称
     # 您的 run.py 会读取这个 exp_name 并用它来创建日志文件夹
-    RUN_NAME="breast_lr_${LR}"
+    RUN_NAME="anime_TIP_lr_${LR}"
     
     echo "-----------------------------------------------------"
     echo "开始运行: LR = $LR"
@@ -39,7 +40,8 @@ do
         checkpoint=$PRETRAINED_CKPT \
         exp_name=$RUN_NAME \
         max_epochs=$MAX_EPOCHS_FINETUNE \
-        lr_eval=$LR 
+        lr_eval=$LR \
+        use_wandb=False
         
     echo "完成运行: LR = $LR"
 done

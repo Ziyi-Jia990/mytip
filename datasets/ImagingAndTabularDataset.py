@@ -98,7 +98,7 @@ class ImagingAndTabularDataset(Dataset):
             ToTensorV2() # <--- 添加 (您之前的代码里漏了这行)
         ])
         # --- 修改结束 ---
-      elif self.dataset_name in ['celeba', 'pawpularity']:
+      elif self.dataset_name in ['celeba', 'pawpularity', 'anime']:
           print(f'Using standard (0-255 -> 0-1) transform for CelebA (Albumentations)')
           self.default_transform = A.Compose([
               A.Resize(height=img_size, width=img_size),
@@ -319,7 +319,8 @@ class ImagingAndTabularDataset(Dataset):
     if self.task == 'regression':
         label = torch.tensor(self.labels[index], dtype=torch.float) # 回归用 float
     else:
-        label = torch.tensor(self.labels[index], dtype=torch.long)  # 分类用 long
+        # label = torch.tensor(self.labels[index], dtype=torch.long)  # 分类用 long
+        label = self.labels[index].clone().detach().to(torch.long)
 
 
     if self.missing_tabular:

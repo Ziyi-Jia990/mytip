@@ -1,0 +1,7 @@
+- pretrain=False
+- evaluate=True
+- checkpoint=
+- exp_name=pawpularity_TIP_lr_1e-4
+- max_epochs=500
+- lr_eval=1e-4
+- use_wandb=False

@@ -1,0 +1,6 @@
+- exp_name=anime_debug
+- pretrain=False
+- evaluate=True
+- checkpoint=/home/jiazy/mytip/results/runs/multimodal/anime_debug_anime_1202_1303/checkpoint_last_epoch_01.ckpt
+- use_wandb=False
+- max_epochs=2

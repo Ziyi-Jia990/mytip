@@ -108,7 +108,7 @@ def grab_image_augmentations(img_size: int, target: str, augmentation_speedup: b
             ])
         print('Using cardiac transform for train augmentation')
 
-    elif target in ['celeba', 'adoption', 'pawpularity']:
+    elif target in ['celeba', 'adoption', 'pawpularity', 'anime']:
         # ...
         if augmentation_speedup:
             transform = A.Compose([
@@ -264,7 +264,7 @@ def grab_hard_eval_image_augmentations(img_size: int, target: str, augmentation_
             transforms.RandomResizedCrop(size=img_size, scale=(0.6,1)),
             transforms.ToTensor() # 自动处理 [0, 255] -> [0.0, 1.0]
         ])
-  elif target.lower() in ['celeba','pawpularity']:
+  elif target.lower() in ['celeba','pawpularity', 'anime']:
       # 假设所有其他数据集都是标准的RGB图像，需要 ImageNet 归一化
       print(f'Using DEFAULT (ImageNet Norm) transform for hard eval augmentation for target: {target}')
       if augmentation_speedup:
