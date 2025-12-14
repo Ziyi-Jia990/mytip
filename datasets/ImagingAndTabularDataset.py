@@ -39,6 +39,16 @@ def convert_to_ts_01(x, **kwargs):
   x = x.permute(2,0,1)
   return x
 
+def to_hwc_for_convert(x, **kwargs):
+    # HxW -> HxWx1
+    if isinstance(x, np.ndarray) and x.ndim == 2:
+        return x[:, :, None]
+    return x
+
+def scale_to_01_if_uint8(x, **kwargs):
+    if isinstance(x, np.ndarray) and x.dtype == np.uint8:
+        return x.astype(np.float32) / 255.0
+    return x
 
 class ImagingAndTabularDataset(Dataset):
   """
@@ -64,11 +74,12 @@ class ImagingAndTabularDataset(Dataset):
     self.task = task
     self.missing_tabular = missing_tabular
     self.data_imaging = torch.load(data_path_imaging)
+
     self.delete_segmentation = delete_segmentation
     self.eval_train_augment_rate = eval_train_augment_rate
     self.live_loading = live_loading
     self.augmentation_speedup = augmentation_speedup
-    self.dataset_name = target
+    self.dataset_name = target.lower()
     # self.dataset_name = data_path_tabular.split('/')[-1].split('_')[0]
 
     if self.delete_segmentation:
@@ -90,6 +101,22 @@ class ImagingAndTabularDataset(Dataset):
           A.Lambda(name='convert2tensor', image=convert_to_ts_01)
         ])
         print('Using cardiac transform for default transform in ImagingAndTabularDataset')
+      elif self.dataset_name in ['pneumonia', 'los', 'rr']:
+        self.default_transform = A.Compose([
+            A.Resize(height=img_size, width=img_size),
+            
+            # === [新增] 强制转为 RGB 三通道 ===
+            # 无论输入是单通道还是三通道，这都会保证输出是三通道
+            A.ToRGB(p=1.0), 
+            
+            # 注意：因为变成了三通道，Normalize 的 mean/std 必须是 3 个数（你代码里已经是3个数了，这样是对的）
+            A.Normalize(mean=(0.0, 0.0, 0.0), std=(1.0, 1.0, 1.0), max_pixel_value=255.0),
+            
+            ToTensorV2(),
+            A.Lambda(name="make_contig", image=lambda x, **k: x.contiguous()),
+        ])
+
+
       elif self.dataset_name == 'adoption': # <-- 确保你的文件名解析出来是 'adoption'
         print(f'Using adoption transform for default transform (Albumentations)')
         # --- 修改这里 ---
@@ -270,65 +297,105 @@ class ImagingAndTabularDataset(Dataset):
 
 
   def __getitem__(self, index: int):
-    im = self.data_imaging[index]
-    path = im
-    if self.live_loading:
-      if self.augmentation_speedup:
-        im = np.load(im[:-4]+'.npy', allow_pickle=True)
-      else:
-        im = read_image(im)
-        im = im / 255
+        try:
+            # 1. 获取路径
+            im_path = self.data_imaging[index]
+            # [关键] 强制转为 Python 原生字符串，防止 pathlib 对象或 numpy str 引发 collate 问题
+            path = str(im_path) 
 
-    # ---- 先拿到原始 tabular numpy 向量 ----
-    subj_np = self.data_tabular[index]  # shape: [num_features]
+            # ================== Part 1: 读取图片 ==================
+            if self.live_loading:
+                if self.augmentation_speedup:
+                    # 加载 .npy
+                    # [关键] 加上 .copy()，确保 numpy 数组拥有一块独立的、连续的内存，不与文件句柄挂钩
+                    im = np.load(im_path[:-4]+'.npy', allow_pickle=True).copy()
+                else:
+                    # 读取原始图片
+                    im_tensor = read_image(im_path) 
+                    # [关键] .numpy().copy() 切断与 PyTorch 底层 allocator 的联系
+                    im = im_tensor.permute(1, 2, 0).numpy().copy()
+            
+            # 2. 获取 Tabular 数据
+            # [关键] 强制 copy，防止 view 引用
+            subj_np = self.data_tabular[index].copy()
+            
+            # ================== Part 2: 应用增强 ==================
+            if self.train and (random.random() <= self.eval_train_augment_rate):
+                res = self.transform_train(image=im)
+                im = res['image']
+                if self.c and self.c > 0:
+                    tab_np = self.corrupt(subj_np)
+                else:
+                    tab_np = subj_np.copy()
+            else:
+                res = self.default_transform(image=im)
+                im = res['image']
+                tab_np = subj_np.copy()
 
-    # ---- 根据 train/eval & corruption，得到当前要用的 tabular numpy 向量 ----
-    if self.train and (random.random() <= self.eval_train_augment_rate):
-      im = self.transform_train(image=im)['image'] if self.augmentation_speedup else self.transform_train(im)
-      if self.c and self.c > 0:
-        tab_np = self.corrupt(subj_np)   # 注意 corrupt 用的是原始顺序
-      else:
-        tab_np = subj_np.copy()
-    else:
-      im = self.default_transform(image=im)['image'] if self.augmentation_speedup else self.default_transform(im)
-      tab_np = subj_np.copy()
+            # ================== Part 3: 终极清洗 (Paranoid Mode) ==================
+            
+            # --- 处理图片 (Image) ---
+            # 如果是 Tensor，先转 numpy 再转回来，或者直接 clone，确保斩断联系
+            if isinstance(im, torch.Tensor):
+                im = im.detach().cpu().numpy() # 先退回 numpy
+            
+            # 此时 im 必须是 numpy (H, W, C)
+            # 强制检查维度，防止 (H, W) 灰度图混入
+            if im.ndim == 2:
+                im = np.expand_dims(im, axis=-1) # (H, W) -> (H, W, 1)
+                im = np.repeat(im, 3, axis=-1)   # (H, W, 1) -> (H, W, 3) 暴力转 RGB
+            elif im.ndim == 3 and im.shape[2] == 1:
+                im = np.repeat(im, 3, axis=-1)   # 灰度通道复制
+            
+            # 创建全新的 Tensor，不共享内存
+            im_tensor = torch.tensor(im, dtype=torch.float32)
+            
+            # 调整为 (C, H, W)
+            if im_tensor.shape[0] != 3 and im_tensor.shape[2] == 3:
+                im_tensor = im_tensor.permute(2, 0, 1)
+            
+            # 归一化
+            if im_tensor.max() > 1.0:
+                 im_tensor = im_tensor / 255.0
 
-    # ---- 若没有 missing_tabular，就统一重排为 [cat, ..., con] ----
-    if not self.missing_tabular:
-      tab_np = self._reorder_subject_np(tab_np)
+            # 最终的连续化
+            im_tensor = im_tensor.contiguous()
 
-    # ---- 转成 tensor ----
-    tab = torch.tensor(tab_np, dtype=torch.float)
+            # --- 处理表格 (Tabular) ---
+            if not self.missing_tabular:
+                tab_np = self._reorder_subject_np(tab_np)
+            
+            # 创建全新的 Tensor
+            tab_tensor = torch.tensor(tab_np, dtype=torch.float32).contiguous()
 
-    # ==== 之前加的兜底，把 im 转成 float32 ====
-    if isinstance(im, torch.Tensor):
-        if im.dtype == torch.uint8:
-            im = im.float() / 255.0
-    else:
-        im = torch.from_numpy(im)
-        if im.dtype == torch.uint8:
-            im = im.float() / 255.0
-        else:
-            im = im.float()
-    # ========================================
+            if self.eval_one_hot:
+                tab_tensor = self.one_hot_encode(tab_tensor).to(torch.float).contiguous()
 
-    if self.eval_one_hot:
-      tab = self.one_hot_encode(tab).to(torch.float)
+            # --- 处理 Label ---
+            if self.task == 'regression':
+                label = torch.tensor(self.labels[index], dtype=torch.float)
+            else:
+                # 即使是 scalar 也要 clone
+                label = torch.tensor(self.labels[index], dtype=torch.long).clone().detach()
 
-    # label = torch.tensor(self.labels[index], dtype=torch.long)
-    if self.task == 'regression':
-        label = torch.tensor(self.labels[index], dtype=torch.float) # 回归用 float
-    else:
-        # label = torch.tensor(self.labels[index], dtype=torch.long)  # 分类用 long
-        label = self.labels[index].clone().detach().to(torch.long)
+            # ================== Part 4: 返回结果 ==================
+            if self.missing_tabular:
+                # [关键] 这里的 missing_mask 是最容易出问题的
+                # 务必使用 torch.tensor(..., copy=True) 或者是 .clone()
+                # 确保它不是 Bool 类型 (DataLoader 对 BoolTensor 支持有时有 bug) -> 转 Float 或 Long
+                mask_data = self.missing_mask_data[index]
+                missing_mask = torch.tensor(mask_data, dtype=torch.float32).contiguous()
+                
+                return (im_tensor, tab_tensor, missing_mask, path), label
+            else:
+                return (im_tensor, tab_tensor, path), label
 
-
-    if self.missing_tabular:
-      missing_mask = torch.from_numpy(self.missing_mask_data[index])
-      return (im, tab, missing_mask, path), label
-    else:
-      return (im, tab, path), label
-
+        except Exception as e:
+            # 这是一个非常有用的 Debug 手段
+            # 如果某个样本处理失败，它会打印具体的索引和错误，而不是让 DataLoader 吞掉错误
+            print(f"!!! Error loading index {index}: {e}")
+            print(f"Path: {self.data_imaging[index]}")
+            raise e
 
   def __len__(self) -> int:
     return len(self.data_tabular)

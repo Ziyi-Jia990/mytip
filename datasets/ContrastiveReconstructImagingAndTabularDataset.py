@@ -16,6 +16,7 @@ from torchvision.io import read_image
 from albumentations.pytorch import ToTensorV2
 import albumentations as A
 import numpy as np
+from PIL import Image
 
 
 def convert_to_float(x):
@@ -32,6 +33,11 @@ def convert_to_ts_01(x, **kwargs):
   x = x.permute(2,0,1)
   return x
 
+
+def scale_to_01_if_uint8(x, **kwargs):
+    if isinstance(x, np.ndarray) and x.dtype == np.uint8:
+        return x.astype(np.float32) / 255.0
+    return x
 
 class ContrastiveReconstructImagingAndTabularDataset(Dataset):
   """
@@ -52,6 +58,8 @@ class ContrastiveReconstructImagingAndTabularDataset(Dataset):
     self.task = task # <--- [新增] 保存任务类型
     self.data_imaging = torch.load(data_path_imaging)
     self.transform = augmentation
+
+
     self.delete_segmentation = delete_segmentation
     self.augmentation_rate = augmentation_rate
     self.live_loading = live_loading
@@ -78,6 +86,14 @@ class ContrastiveReconstructImagingAndTabularDataset(Dataset):
           A.Lambda(name='convert2tensor', image=convert_to_ts_01)
         ])
         print(f'Using cardiac transform for default transform in ContrastiveReconstructImagingAndTabularDataset')   
+      elif self.dataset_name in ['pneumonia', 'los', 'rr']:
+        print('Using pneumonia default transform (Resize + 0-1 + CHW) [Albumentations]')
+        self.default_transform = A.Compose([
+            A.Resize(height=img_size, width=img_size),  # 即使重复也无妨
+            A.Lambda(name='scale01', image=scale_to_01_if_uint8),
+            A.Lambda(name='convert2tensor', image=convert_to_ts_01),
+        ])
+
       elif self.dataset_name in ['celeba', 'adoption', 'pawpularity', 'anime']:
           print(f'Using standard (0-255 -> 0-1) transform for CelebA (Albumentations)')
           self.default_transform = A.Compose([

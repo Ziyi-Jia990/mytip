@@ -48,6 +48,7 @@ class TIP3Loss(Pretraining):
 
         # loss
         nclasses = hparams.batch_size
+        print(f"[DEBUG]hparams.batch_size:{hparams.batch_size}")
         self.criterion_val_itc = CLIPLoss(temperature=self.hparams.temperature, lambda_0=self.hparams.lambda_0)
         self.criterion_train_itc = self.criterion_val_itc
         # self.criterion_tr = ReconstructionLoss(num_cat=self.hparams.num_cat, cat_offsets=self.encoder_tabular.cat_offsets, num_con=self.hparams.num_con)

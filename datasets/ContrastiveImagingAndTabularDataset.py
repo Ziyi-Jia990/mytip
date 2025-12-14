@@ -28,6 +28,11 @@ def convert_to_ts_01(x, **kwargs):
   return x
 
 
+def scale_to_01_if_uint8(x, **kwargs):
+    if isinstance(x, np.ndarray) and x.dtype == np.uint8:
+        return x.astype(np.float32) / 255.0
+    return x
+
 class ContrastiveImagingAndTabularDataset(Dataset):
   """
   Multimodal dataset that generates multiple views of imaging and tabular data for contrastive learning.
@@ -73,6 +78,13 @@ class ContrastiveImagingAndTabularDataset(Dataset):
         ])
         print(f'Using cardiac transform for default transform in ContrastiveImagingAndTabularDataset')
         # --- 修改结束 ---
+      elif self.dataset_name in ['pneumonia', 'los', 'rr']:
+        print('Using pneumonia default transform (Resize + 0-1 + CHW) [Albumentations]')
+        self.default_transform = A.Compose([
+            A.Resize(height=img_size, width=img_size),  # 即使重复也无妨
+            A.Lambda(name='scale01', image=scale_to_01_if_uint8),
+            A.Lambda(name='convert2tensor', image=convert_to_ts_01),
+        ])
       elif self.dataset_name in ['celeba', 'adoption', 'pawpularity','anime']:
           print(f'Using standard (0-255 -> 0-1) transform for CelebA (Albumentations)')
           self.default_transform = A.Compose([

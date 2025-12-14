@@ -1,6 +1,0 @@
-- exp_name=pawpularity_image
-- pretrain=False
-- evaluate=True
-- checkpoint=/home/debian/TIP/results/runs/multimodal/pawpularity_image_pawpularity_1202_1033/checkpoint_last_epoch_01.ckpt
-- use_wandb=False
-- max_epochs=3

@@ -1,5 +1,0 @@
-[2025-12-04 07:48:58,770][tabpfn.model_loading][INFO] - Downloading model to /home/jiazy/.cache/tabpfn/tabpfn-v2.5-regressor-v2.5_default.ckpt.
-[2025-12-04 07:48:58,826][tabpfn.model_loading][INFO] - Attempting HuggingFace download: tabpfn-v2.5-regressor-v2.5_default.ckpt
-[2025-12-04 07:48:59,577][httpx][INFO] - HTTP Request: HEAD https://huggingface.co/Prior-Labs/tabpfn_2_5/resolve/main/tabpfn-v2.5-regressor-v2.5_default.ckpt "HTTP/1.1 401 Unauthorized"
-[2025-12-04 07:48:59,577][tabpfn.model_loading][WARNING] - HuggingFace download failed.
-[2025-12-04 07:48:59,577][tabpfn.model_loading][WARNING] - For commercial usage, we provide alternative download options for v2.5, please reach out to us at sales@priorlabs.ai.

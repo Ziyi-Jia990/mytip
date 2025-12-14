@@ -69,17 +69,20 @@ class Pretraining(pl.LightningModule):
     self.is_regression = (self.hparams.task == 'regression')
 
     # Accuracy calculated against all others in batch of same view except for self (i.e. -1) and all of the other view
+    n_classes_cat = self.encoder_tabular.num_unique_cat
+    topk_cat = min(5, n_classes_cat)
+
     self.top1_acc_train = torchmetrics.Accuracy(task='multiclass', top_k=1, num_classes=nclasses_train)
     self.top1_acc_val = torchmetrics.Accuracy(task='multiclass', top_k=1, num_classes=nclasses_val)
 
-    self.top5_acc_train = torchmetrics.Accuracy(task='multiclass', top_k=5, num_classes=nclasses_train)
-    self.top5_acc_val = torchmetrics.Accuracy(task='multiclass', top_k=5, num_classes=nclasses_val)
+    self.top5_acc_train = torchmetrics.Accuracy(task='multiclass', top_k=topk_cat, num_classes=nclasses_train)
+    self.top5_acc_val = torchmetrics.Accuracy(task='multiclass', top_k=topk_cat, num_classes=nclasses_val)
 
     n_classes_cat = self.encoder_tabular.num_unique_cat
     self.top1_acc_train_cat = torchmetrics.Accuracy(task='multiclass', top_k=1, num_classes=n_classes_cat)
-    self.top5_acc_train_cat = torchmetrics.Accuracy(task='multiclass', top_k=5, num_classes=n_classes_cat)
+    self.top5_acc_train_cat = torchmetrics.Accuracy(task='multiclass', top_k=topk_cat, num_classes=n_classes_cat)
     self.top1_acc_val_cat = torchmetrics.Accuracy(task='multiclass', top_k=1, num_classes=n_classes_cat)
-    self.top5_acc_val_cat = torchmetrics.Accuracy(task='multiclass', top_k=5, num_classes=n_classes_cat)
+    self.top5_acc_val_cat = torchmetrics.Accuracy(task='multiclass', top_k=topk_cat, num_classes=n_classes_cat)
     self.auc_train_cat = torchmetrics.AUROC(task='multiclass', num_classes=n_classes_cat)
     self.auc_val_cal = torchmetrics.AUROC(task='multiclass', num_classes=n_classes_cat)
     

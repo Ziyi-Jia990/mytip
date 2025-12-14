@@ -33,88 +33,96 @@ class ImageDataset(Dataset):
   Dataset for the evaluation of images
   """
   def __init__(self, data: str, labels: str, delete_segmentation: bool, eval_train_augment_rate: float, img_size: int, target: str, train: bool, live_loading: bool, task: str,
-               dataset_name:str='dvm', augmentation_speedup:bool=False) -> None:
-    super(ImageDataset, self).__init__()
-    self.train = train
-    self.eval_train_augment_rate = eval_train_augment_rate
-    self.live_loading = live_loading
-    self.task = task
+                dataset_name:str='dvm', augmentation_speedup:bool=False) -> None:
+      super(ImageDataset, self).__init__()
+      self.train = train
+      self.eval_train_augment_rate = eval_train_augment_rate
+      self.live_loading = live_loading
+      self.task = task
 
-    self.dataset_name = dataset_name
-    self.augmentation_speedup = augmentation_speedup
+      self.dataset_name = dataset_name
+      self.augmentation_speedup = augmentation_speedup
 
-    self.data = torch.load(data)
-    self.labels = torch.load(labels)
+      self.data = torch.load(data)
+      self.labels = torch.load(labels)
 
-    if delete_segmentation:
-      for im in self.data:
-        im[0,:,:] = 0
+      if delete_segmentation:
+          for im in self.data:
+              im[0,:,:] = 0
 
-    self.transform_train = grab_hard_eval_image_augmentations(img_size, target, augmentation_speedup=self.augmentation_speedup)
+      self.transform_train = grab_hard_eval_image_augmentations(img_size, target, augmentation_speedup=self.augmentation_speedup)
 
-    if self.augmentation_speedup:
-        if self.dataset_name.lower() == 'dvm':
-            self.transform_val = A.Compose([
+      if self.augmentation_speedup:
+          target_lower = self.dataset_name.lower()
+          
+          if target_lower == 'dvm':
+              self.transform_val = A.Compose([
+                  A.Resize(height=img_size, width=img_size),
+                  A.Lambda(name='convert2tensor', image=convert_to_ts)
+              ])
+              print('Using dvm transform for val transform in ImageDataset')
+          
+          elif target_lower == 'cardiac':
+              self.transform_val = A.Compose([
+                  A.Resize(height=img_size, width=img_size),
+                  A.Lambda(name='convert2tensor', image=convert_to_ts_01)
+              ])
+              print('Using cardiac transform for val transform in ImageDataset')
+          
+          elif target_lower in ['celeba', 'adoption', 'pawpularity', 'anime']:
+              print(f'Using standard (0-255 -> 0-1) transform for {self.dataset_name} (Albumentations)')
+              self.transform_val = A.Compose([
+                  A.Resize(height=img_size, width=img_size),
+                  A.Normalize(
+                      mean=[0.485, 0.456, 0.406],
+                      std=[0.229, 0.224, 0.225],
+                      max_pixel_value=255.0
+                  ),
+                  ToTensorV2() 
+              ])
+          
+          # === [新增] Pneumonia 分支 ===
+          elif target_lower in ['pneumonia', 'los', 'rr']:
+              print(f'Using Pneumonia transform for val transform (Resize + ImageNet Norm)')
+              self.transform_val = A.Compose([
+                  A.Resize(height=img_size, width=img_size),
+                  # Pneumonia 使用标准的 ImageNet 归一化
+                  A.Normalize(
+                      mean=[0.485, 0.456, 0.406],
+                      std=[0.229, 0.224, 0.225],
+                      max_pixel_value=255.0
+                  ),
+                  ToTensorV2()
+              ])
+          # ============================
+
+          elif target_lower == 'breast_cancer': 
+              print(f'Using Breast Cancer transform (Resize + L-to-RGB + NORMALIZE + ToTensor)')
+              self.transform_val = A.Compose([
+                  A.Resize(height=img_size, width=img_size),
+                  A.ToRGB(p=1.0),
+                  A.Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0], max_pixel_value=255.0),
+                  ToTensorV2()
+              ])
+          
+          elif target_lower == 'skin_cancer': 
+              print(f'Using Skin Cancer transform (Resize + 0-1 Norm)')
+              self.transform_val = A.Compose([
                 A.Resize(height=img_size, width=img_size),
-                A.Lambda(name='convert2tensor', image=convert_to_ts)
-            ])
-            print('Using dvm transform for val transform in ImageDataset')
-        elif self.dataset_name.lower() == 'cardiac':
-            self.transform_val = A.Compose([
-                A.Resize(height=img_size, width=img_size),
-                A.Lambda(name='convert2tensor', image=convert_to_ts_01)
-            ])
-            print('Using cardiac transform for val transform in ImageDataset')
-            
-        # --- 【修复开始】---
-        
-        # elif self.dataset_name.lower() == 'adoption': 
-        #     print(f'Using adoption transform for default transform (Albumentations)')
-        #     # 修正：self.default_transform -> self.transform_val
-        #     self.transform_val = A.Compose([
-        #         A.Resize(height=img_size, width=img_size),
-        #         ToTensorV2() 
-        #     ])
-        elif self.dataset_name.lower() in ['celeba', 'adoption', 'pawpularity', 'anime']:
-            print(f'Using standard (0-255 -> 0-1) transform for CelebA (Albumentations)')
-            # 修正：self.default_transform -> self.transform_val
-            self.transform_val = A.Compose([
-                A.Resize(height=img_size, width=img_size),
-                A.Normalize(
-                    mean=[0.485, 0.456, 0.406],
-                    std=[0.229, 0.224, 0.225],
-                    max_pixel_value=255.0
-                ),
-                ToTensorV2() 
-            ])
-        elif self.dataset_name.lower() == 'breast_cancer': 
-            print(f'Using Breast Cancer transform (Resize + L-to-RGB + NORMALIZE + ToTensor)')
-            # 修正：self.default_transform -> self.transform_val
-            self.transform_val = A.Compose([
-                A.Resize(height=img_size, width=img_size),
-                A.ToRGB(p=1.0),
-                A.Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0], max_pixel_value=255.0),
+                A.Normalize(mean=(0.0, 0.0, 0.0),
+                            std=(255.0, 255.0, 255.0),
+                            max_pixel_value=255.0),
                 ToTensorV2()
             ])
-        elif self.dataset_name.lower() == 'skin_cancer': 
-            print(f'Using Skin Cancer transform (Resize + 0-1 Norm)')
-            # 修正：self.default_transform -> self.transform_val
-            self.transform_val = A.Compose([
-              A.Resize(height=img_size, width=img_size),
-              A.Normalize(mean=(0.0, 0.0, 0.0),
-                          std=(255.0, 255.0, 255.0),  # 这里的 std=255 刚好等价于除以 255
-                          max_pixel_value=255.0),
-              ToTensorV2()
+              
+          else:
+              # [修复] 原代码 raise print(...) 是语法错误，修正为 raise ValueError
+              raise ValueError(f'Unsupported dataset: {self.dataset_name}. Supported: dvm, cardiac, celeba, adoption, pneumonia, etc.')
+      else:
+          self.transform_val = transforms.Compose([
+              transforms.Resize(size=(img_size,img_size)),
+              transforms.Lambda(convert_to_float)
           ])
-            
-        else:
-            raise print('Only support dvm and cardiac datasets')
-    else:
-      self.transform_val = transforms.Compose([
-        transforms.Resize(size=(img_size,img_size)),
-        # transforms.Lambda(lambda x : x.float())
-        transforms.Lambda(convert_to_float)
-      ])
 
 
   def __getitem__(self, indx: int) -> Tuple[torch.Tensor, torch.Tensor]:

@@ -1,13 +1,12 @@
 defaults:
   - _self_
   - models: resnet50
-  - dataset: skin_cancer
-
-comment: None
+  - dataset: los
 
 # Command Center
 pretrain: True
 run_eval: True
+comment: None
 
 seeds: 
   - 2022
@@ -25,12 +24,12 @@ lr_finder_lrs:
 multitarget:
 
 wandb_entity: siyiwind
-data_base: /mnt/hdd/jiazy/skin-cancer/features
-num_workers: 4
+data_base: /mnt/hdd/jiazy/mimic/regression/los/features/
+num_workers: 3
 
-algorithm_name: TIP
-strategy: tip
-dataset_name: skin_cancer
+algorithm_name: MMCL
+strategy: comparison
+dataset_name: los
 exp_name: NA
 
 
@@ -54,7 +53,6 @@ loss: clip
 view: augmented
 lambda_0: 0.5
 momentum: 0.99
-tr_loss: normal
 
 train_similarity_matrix:
 val_similarity_matrix: 
@@ -68,7 +66,7 @@ pretrained_imaging_strategy: trainable
 
 multiple_lr: False
 
-batch_size: 256
+batch_size: 512
 lr: 3.e-4
 lr_eval: 1.e-4
 weight_decay: 1.e-5
@@ -90,10 +88,8 @@ augmentation_speedup: True
 
 # tabular
 corruption_rate: 0.3
-one_hot: False
-eval_one_hot: False
-replace_special_rate: 0.50
-replace_random_rate: 0.0
+one_hot: True
+eval_one_hot: True
 
 encoder_num_layers: 2
 projector_num_layers: 1
@@ -104,6 +100,8 @@ generate_embeddings: False
 keep_projector: False
 eval_train_augment_rate: 0.8
 eval_classifier: linear
+
+# Finetune
 finetune_strategy: frozen
 finetune_ensemble: False
 
@@ -112,13 +110,13 @@ checkpoint_vec2vec:
 
 checkpoint: 
 datatype: multimodal
-eval_datatype: multimodal
+eval_datatype: imaging
 
 # General
 seed: 2022
 max_epochs: 500
 log_images: False
-use_wandb: False
+use_wandb: True
 limit_train_batches: 1.0
 limit_val_batches: 1.0
 limit_test_batches: 1.0
@@ -132,16 +130,7 @@ weighted_sampler: False
 classifier_freq: 5
 unit_test: False
 
-
-# Tabular Transformer
-tabular_embedding_dim: 512
-embedding_dropout: 0.0
-tabular_transformer_num_layers: 4
-multimodal_transformer_num_layers: 4
-multimodal_embedding_dim: 512
-drop_rate: 0.0
-
-
+tabular_embedding_dim: 2048
 
 transform:
 version:
@@ -157,7 +146,7 @@ labels_train_short:
 labels_val_short:
 data_train_tabular_short:
 data_val_tabular_short:
-data_train_imaging_short: 
+data_train_imaging_short:
 data_val_imaging_short:
 field_lengths_tabular_short:
 data_train_eval_tabular_short:

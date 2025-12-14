@@ -1,8 +1,0 @@
-- pretrain=False
-- evaluate=True
-- checkpoint=/home/jiazy/mytip/results/runs/multimodal/anime_2023_MMCL_anime_1204_1327/checkpoint_last_epoch_499.ckpt
-- exp_name=anime_2023_MMCL
-- max_epochs=500
-- lr_eval=1e-3
-- use_wandb=False
-- seed=2023

@@ -1,6 +1,0 @@
-- exp_name=anime_Concat_2024
-- max_epochs=500
-- seed=2024
-- lr_eval=1e-3
-- lr=1e-3
-- use_wandb=False

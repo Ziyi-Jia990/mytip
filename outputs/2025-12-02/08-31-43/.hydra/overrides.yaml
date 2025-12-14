@@ -1,5 +1,0 @@
-- exp_name=pawpularity_image
-- use_wandb=False
-- lr_eval=1e-3
-- lr=1e-3
-- max_epochs=3

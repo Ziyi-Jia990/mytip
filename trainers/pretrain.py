@@ -60,7 +60,13 @@ def load_datasets(hparams):
     hparams.input_size = train_dataset.get_input_size()
   elif hparams.datatype == 'imaging':
     # for SSL image models
-    transform = grab_image_augmentations(hparams.img_size, hparams.target, hparams.crop_scale_lower)
+    transform = grab_image_augmentations(
+        hparams.img_size,
+        hparams.target,
+        augmentation_speedup=hparams.augmentation_speedup,
+        crop_scale_lower=hparams.crop_scale_lower
+    )
+
     hparams.transform = transform.__repr__()
     train_dataset = ContrastiveImageDataset(
       data=hparams.data_train_imaging, labels=hparams.labels_train, 

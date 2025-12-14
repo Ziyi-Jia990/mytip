@@ -163,8 +163,7 @@ def compute_mean_embeddings(adapter: ModelAdapter,
                             baseline_file_path: str):
     """
     计算数据集的平均嵌入 (z_i, z_t)。
-    如果 'baseline_file_path' 存在，则加载它。
-    否则，计算它并保存。
+    使用累加法以避免内存溢出 (OOM)。
     """
     
     # --- [检查文件是否存在] ---
@@ -174,7 +173,6 @@ def compute_mean_embeddings(adapter: ModelAdapter,
         try:
             baselines = torch.load(baseline_file_path, map_location=device)
             print("基线加载成功。")
-            # 我们假设保存的文件已经是正确的 [1, ...] 形状
             return baselines['img_embed'], baselines['tab_embed']
         except Exception as e:
             print(f"加载基线失败 (文件可能已损坏): {e}")
@@ -183,45 +181,61 @@ def compute_mean_embeddings(adapter: ModelAdapter,
 
     adapter.model.to(device)
     adapter.model.eval()
-    all_img_embeds, all_tab_embeds = [], []
+    
+    # --- 修改部分开始：不再存储列表，而是定义累加器 ---
+    running_img_sum = None
+    running_tab_sum = None
+    total_samples = 0
+    # -----------------------------------------------
+
     print(f"Calculating mean embeddings baseline from {len(data_loader)} batches...")
+    
     with torch.no_grad():
         for i, batch in enumerate(tqdm(data_loader)):
             img_input = batch[0][0].to(device)
             tab_input = batch[0][1].to(device)
+            
             if img_input.dtype == torch.uint8:
                 img_input = img_input.float() / 255.0
             
+            # 获取当前 batch 的 embedding
             img_embed = adapter.get_image_embedding(img_input)
             tab_embed = adapter.get_tabular_embedding(tab_input)
-            all_img_embeds.append(img_embed.cpu())
-            all_tab_embeds.append(tab_embed.cpu())
             
-            # --- [调试] ---
-            # (与您之前的调试逻辑相同，在少量批次后停止)
-            # if i >= 10: # (例如，计算 11 个批次的均值)
-            #     print("\n--- 调试: 已达到基线计算的批次限制 ---")
-            #     break 
-                
-    # --- [关键修复在这里] ---
-    
-    # 1. 计算均值 (移除批次维度)
-    mean_img_embed = torch.cat(all_img_embeds, dim=0).mean(dim=0) # 形状变为 [C, H, W]
-    mean_tab_embed = torch.cat(all_tab_embeds, dim=0).mean(dim=0) # 形状变为 [N, D] 或 [D]
-    
-    # 2. 将批次维度 (dim=0) 加回去
-    mean_img_embed = mean_img_embed.unsqueeze(0) # 形状变为 [1, C, H, W]
-    mean_tab_embed = mean_tab_embed.unsqueeze(0) # 形状变为 [1, N, D] 或 [1, D]
-    
-    # -----------------------
+            # --- 累加逻辑 ---
+            batch_size = img_embed.shape[0]
+            
+            # 1. 初始化累加器 (如果还是 None)
+            if running_img_sum is None:
+                # 保持维度，并在 CPU 上进行累加计算以节省显存
+                # img_embed[0] 的形状可能是 [C, H, W] 或 [D]
+                running_img_sum = torch.zeros_like(img_embed[0], device='cpu', dtype=torch.float32)
+                running_tab_sum = torch.zeros_like(tab_embed[0], device='cpu', dtype=torch.float32)
 
-    print("Mean embeddings calculated.")
+            # 2. 将当前 batch 的总和加到运行总和中
+            # sum(dim=0) 会把 batch 维度压缩掉，得到该 batch 的特征总和
+            running_img_sum += img_embed.sum(dim=0).cpu()
+            running_tab_sum += tab_embed.sum(dim=0).cpu()
+            
+            total_samples += batch_size
+            # ----------------
+                
+    # --- 计算最终平均值 ---
+    # 此时 running_sum 是所有样本的总和，除以样本总数得到平均值
+    mean_img_embed = running_img_sum / total_samples
+    mean_tab_embed = running_tab_sum / total_samples
+    
+    # 2. 将批次维度 (dim=0) 加回去，变成 [1, ...]
+    mean_img_embed = mean_img_embed.unsqueeze(0) 
+    mean_tab_embed = mean_tab_embed.unsqueeze(0) 
+    
+    print(f"Mean embeddings calculated from {total_samples} samples.")
 
     try:
         print(f"正在保存新基线到: {baseline_file_path}")
         baselines_to_save = {
-            'img_embed': mean_img_embed.to(device), # (已修正形状)
-            'tab_embed': mean_tab_embed.to(device)  # (已修正形状)
+            'img_embed': mean_img_embed.to(device),
+            'tab_embed': mean_tab_embed.to(device)
         }
         torch.save(baselines_to_save, baseline_file_path)
         print("基线保存成功。")
@@ -654,10 +668,8 @@ if __name__ == "__main__":
     print("\n--- 脚本已准备就绪 ---")
 
     checkpoints_path = [
-        '/home/jiazy/mytip/results/runs/eval/anime_MAX_lr_1e-4_anime_1204_1729/checkpoint_best_mae.ckpt',
-        '/home/jiazy/mytip/results/runs/eval/anime_Concat_lr_1e-3_anime_1204_1756/checkpoint_best_mae.ckpt',
-        '/home/jiazy/mytip/results/runs/eval/anime_DAFT_lr_1e-4_anime_1204_1833/checkpoint_best_mae.ckpt',
-        '/home/jiazy/mytip/results/runs/eval/anime_TIP_lr_1e-3_anime_1206_0254/checkpoint_best_mae.ckpt'
+        '/home/jiazy/mytip/checkpoint_best_acc.ckpt',
     ]
     for checkpoint in checkpoints_path:
         load_and_run_from_checkpoint(checkpoint)
+
