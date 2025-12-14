@@ -103,19 +103,20 @@ class ImagingAndTabularDataset(Dataset):
         print('Using cardiac transform for default transform in ImagingAndTabularDataset')
       elif self.dataset_name in ['pneumonia', 'los', 'rr']:
         self.default_transform = A.Compose([
+            # 1. 尺寸
             A.Resize(height=img_size, width=img_size),
-            
-            # === [新增] 强制转为 RGB 三通道 ===
-            # 无论输入是单通道还是三通道，这都会保证输出是三通道
+            # 2. 强制转 RGB (匹配 ImageNet 模型输入需求)
             A.ToRGB(p=1.0), 
-            
-            # 注意：因为变成了三通道，Normalize 的 mean/std 必须是 3 个数（你代码里已经是3个数了，这样是对的）
-            A.Normalize(mean=(0.0, 0.0, 0.0), std=(1.0, 1.0, 1.0), max_pixel_value=255.0),
-            
+            # 3. [必须与训练代码一致] 使用 ImageNet 统计量
+            A.Normalize(
+                mean=[0.485, 0.456, 0.406], 
+                std=[0.229, 0.224, 0.225], 
+                max_pixel_value=255.0
+            ),
+            # 4. 转 Tensor
             ToTensorV2(),
             A.Lambda(name="make_contig", image=lambda x, **k: x.contiguous()),
         ])
-
 
       elif self.dataset_name == 'adoption': # <-- 确保你的文件名解析出来是 'adoption'
         print(f'Using adoption transform for default transform (Albumentations)')

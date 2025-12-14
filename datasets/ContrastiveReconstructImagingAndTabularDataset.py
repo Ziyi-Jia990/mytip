@@ -86,12 +86,27 @@ class ContrastiveReconstructImagingAndTabularDataset(Dataset):
           A.Lambda(name='convert2tensor', image=convert_to_ts_01)
         ])
         print(f'Using cardiac transform for default transform in ContrastiveReconstructImagingAndTabularDataset')   
+      # 将 pneumonia, los, rr 统一处理
       elif self.dataset_name in ['pneumonia', 'los', 'rr']:
-        print('Using pneumonia default transform (Resize + 0-1 + CHW) [Albumentations]')
+        print(f'Using {self.dataset_name} transform (Resize + RGB + ImageNet Norm)')
+        
         self.default_transform = A.Compose([
-            A.Resize(height=img_size, width=img_size),  # 即使重复也无妨
-            A.Lambda(name='scale01', image=scale_to_01_if_uint8),
-            A.Lambda(name='convert2tensor', image=convert_to_ts_01),
+            # 1. 强制固定尺寸
+            A.Resize(height=img_size, width=img_size),
+            
+            # 2. [关键] 强制转 RGB (3通道)
+            # 即使原图是灰度，也会复制成 3 通道，满足模型输入要求
+            A.ToRGB(p=1.0),
+            
+            # 3. [关键] 使用 ImageNet 归一化 (与训练代码保持一致)
+            A.Normalize(
+                mean=[0.485, 0.456, 0.406], 
+                std=[0.229, 0.224, 0.225], 
+                max_pixel_value=255.0
+            ),
+            
+            # 4. 转 Tensor (自动处理 HWC -> CHW)
+            ToTensorV2()
         ])
 
       elif self.dataset_name in ['celeba', 'adoption', 'pawpularity', 'anime']:
